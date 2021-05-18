@@ -119,7 +119,7 @@ class OutputFile():
     """ represenets a connection to a TOUGH2 output file, containing
     printouts of various parameters, step by step for each timestep
     """ 
-    def __init__(self, fname):
+    def __init__(self, fname, ew=5, iw=6):
         self.fname = fname
         self.hdr_locs = []
         self.offsets = []
@@ -127,6 +127,8 @@ class OutputFile():
         self._data_cols = None
         self._conn_data_cols = None
         self._gener_data_cols = None
+        self.ew = ew
+        self.iw = iw
         self.read_file()
 
     def to_pickle(self, outfile):
@@ -221,11 +223,10 @@ class OutputFile():
         if len(self.hdr_locs) == 0:
             self.read_file()
         with open(self.fname, 'r') as f:
-            f.seek(self.position_for_line(self.hdr_locs[n])+self.hdr_locs[n])
-            # f.seek(self.position_for_line(self.hdr_locs[n])) # LC 12/05/2020
+            # f.seek(self.position_for_line(self.hdr_locs[n])+self.hdr_locs[n])
+            f.seek(self.position_for_line(self.hdr_locs[n])) # LC 12/05/2020
             l = f.readline()
             names = split_cols(l.strip())
-            # names = split_cols(f.readline().strip())
             vals = f.readline().split()
             d = dict()
             for name, val in zip(names, vals):
@@ -259,8 +260,8 @@ class OutputFile():
         if len(self.hdr_locs) == 0:
             self.read_file()
         with open(self.fname, 'r') as f:
-            f.seek(self.position_for_line(self.hdr_locs[n])+self.hdr_locs[n])# LC 12/05/2019
-#           f.seek(self.position_for_line(self.hdr_locs[n]))# LC 12/05/2019
+#           f.seek(self.position_for_line(self.hdr_locs[n])+self.hdr_locs[n])# LC 12/05/2019
+            f.seek(self.position_for_line(self.hdr_locs[n]))# LC 12/05/2019
             while True:
                 dummy = f.readline()
                 if "ELEM." in dummy:
@@ -292,7 +293,28 @@ class OutputFile():
                 
 #                out = [l[:5]] + l[5:-5].split() + [l[-5:].strip()]
                 # out = [l[1:6]] + l[6:-5].split() + [l[-5:].strip()] # LC 12/05/2020
-                out = [l[:7].strip()] + l[7:].split()  # MH 17/06/2020
+                iw = self.iw # Index width (# of digits provided in output for INDEX column)
+                ew = self.ew # Element width (# of characters contained in each element)
+                col1 = l.find('.') - l[l.find('.'):0:-1].find(' ')
+                out = ([l[:col1].strip()[:-iw].strip()[-ew:].strip()] + # Find ELEM (last 5 nonempty digits before index)
+                       [l[:col1].strip()[-iw:].strip()] +               # Find INDEX (last digits of stripped substring)
+                       l[col1:].split())                                # Collect rest of floating-point data with split()
+                # out = [l[:7].strip()] + l[7:].split()  # MH 17/06/2020
+                # col1 = l.find('.') - l[l.find('.'):0:-1].find(' ')    # Find last space before first floating point val
+                # col2 = col1 - l[:col1][::-1].find(' ') - 1
+                # if col1 - col2 < 10:
+                #     # We have isolated only the INDEX
+                #     print(l[col2:col1])
+                #     out = ([l[:col2].strip()[:5].strip()] +      # ELEM1
+                #            [l[:col2].strip()[-5:].strip()] +     # ELEM2
+                #            [l[col2:col1].strip()])       # INDEX
+                # else:
+                #     # We have isolated ELEM and INDEX:
+                #     out = (l[:col2].strip() +            # ELEM1 (Everything before ELEM2+INDEX string
+                #            [l[col2:col1].strip()[:5]] +  # ELEM2 (First 5 digits of combined ELEM2+INDEX string
+                #            [l[col2:col1].strip()[5:]])   # INDEX (Everything after ELEM2)
+                # out += l[col1:].split()
+
                 vals = zip(el_col_names, out)
                 
                 """
@@ -315,7 +337,8 @@ class OutputFile():
         if len(self.hdr_locs) == 0:
             self.read_file()
         with open(self.fname, 'r') as f:
-            f.seek(self.position_for_line(self.hdr_locs[n])+self.hdr_locs[n])
+            # f.seek(self.position_for_line(self.hdr_locs[n])+self.hdr_locs[n])
+            f.seek(self.position_for_line(self.hdr_locs[n]))
             while True:
                 dummy = f.readline()
                 if "ELEM1" in dummy:
@@ -343,23 +366,30 @@ class OutputFile():
 
                 # Parse data from connection output string:
                 # INDEX length is 7 for tough-mp (> 1e6 connections), 6 for simpler models
+                iw = self.iw # 6  # Index width (# of digits provided in output for INDEX column)
+                ew = self.ew # 5  # Element width (# of characters contained in each element)
                 col1 = l.find('.') - l[l.find('.'):0:-1].find(' ')    # Find last space before first floating point val
-                # col2 = l[:col1] - l[col1:0:-1].find(' ') # Find last space before col1
+                # col2 = col1 - l[:col1][::-1].find(' ') - 1
                 # if col1 - col2 < 10:
                 #     # We have isolated only the INDEX
-                #     col3 = l[:col2] - l[col2:0:-1].find(' ')  # Find last space before col2
-                #     out = ([l[col3:col2].strip()[:5]] +
-                #            [l[col3:col2].strip()[-5:]] +
-                #            [l[col2:col1].strip()])
+                #     print(l[col2:col1])
+                #     out = ([l[:col2].strip()[:5].strip()] +      # ELEM1
+                #            [l[:col2].strip()[-5:].strip()] +     # ELEM2
+                #            [l[col2:col1].strip()])       # INDEX
                 # else:
-                #     # We have isolated INDEX and ELEM2:
-                #     out = (l[:col2].strip() +
-                #            [l[col2:col1].strip()[:5]] +
-                #            [l[col2:col1].strip()[5:]])
+                #     # We have isolated ELEM2 and INDEX:
+                #     out = (l[:col2].strip() +            # ELEM1 (Everything before ELEM2+INDEX string
+                #            [l[col2:col1].strip()[:5]] +  # ELEM2 (First 5 digits of combined ELEM2+INDEX string
+                #            [l[col2:col1].strip()[5:]])   # INDEX (Everything after ELEM2)
                 # out += l[col1:].split()
-                out = ([l[:col1].strip()[:-7].strip()[:-5].strip()] + # Find ELEM1 (stripped string before ELEM2)
-                       [l[:col1].strip()[:-7].strip()[-5:].strip()] + # Find ELEM2 (last 5 nonempty digits before index)
-                       [l[:col1].strip()[-7:].strip()] +              # Find INDEX (last digits of stripped substring)
+
+                # out = ([l[:col1].strip()[:-7].strip()[:-5].strip()] + # Find ELEM1 (stripped string before ELEM2)
+                #        [l[:col1].strip()[:-7].strip()[-5:].strip()] + # Find ELEM2 (last 5 nonempty digits before index)
+                #        [l[:col1].strip()[-7:].strip()] +              # Find INDEX (last digits of stripped substring)
+                #        l[col1:].split())                              # Collect rest of floating-point data with split()
+                out = ([l[:col1].strip()[:-iw].strip()[:-ew].strip()] + # Find ELEM1 (stripped string before ELEM2)
+                       [l[:col1].strip()[:-iw].strip()[-ew:].strip()] + # Find ELEM2 (last 5 nonempty digits before index)
+                       [l[:col1].strip()[-iw:].strip()] +              # Find INDEX (last digits of stripped substring)
                        l[col1:].split())                              # Collect rest of floating-point data with split()
                 vals = zip(conn_col_names, out)
                 """
@@ -382,7 +412,8 @@ class OutputFile():
         if len(self.hdr_locs) == 0:
             self.read_file()
         with open(self.fname, 'r') as f:
-            f.seek(self.position_for_line(self.hdr_locs[n])+self.hdr_locs[n])
+            # f.seek(self.position_for_line(self.hdr_locs[n])+self.hdr_locs[n])
+            f.seek(self.position_for_line(self.hdr_locs[n]))
             while True:
                 dummy = f.readline()
                 if "GENERATION RATE" in dummy:

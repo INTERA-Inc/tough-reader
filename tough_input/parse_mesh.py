@@ -100,6 +100,7 @@ class ElemeCollection():
                        ('nadd', 'U5'),
                        ('ma1', 'U3'),
                        ('ma2', 'U2'),
+                       ('ma', 'U5'),
                        ('volx', np.float64),
                        ('ahtx', np.float64),
                        ('pmx', np.float64),
@@ -122,6 +123,7 @@ class ElemeCollection():
             data_eleme['x'][i_el] = elem.x
             data_eleme['y'][i_el] = elem.y
             data_eleme['z'][i_el] = elem.z
+            data_eleme['ma'][i_el] = (elem.ma1 + elem.ma2).strip()
 
         return data_eleme
 
