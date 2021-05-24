@@ -469,7 +469,8 @@ class Mesh():
         elem_list = np.where(np.logical_and(elem_data['ma1'] == from_ma[:-2], elem_data['ma2'] == from_ma[-2:]))[0]
         el_list = elem_data['name'][elem_list]
 
-        if from_ma != to_ma:
+        if (from_ma != to_ma) and (not bound_el):
+            # This is a simple MA type swap. No extra operations are necessary.
             elem_data['ma1'][elem_list] = to_ma[:-2]
             elem_data['ma2'][elem_list] = to_ma[-2:]
             if update_elements:
