@@ -525,7 +525,7 @@ class TOUGHEntry:
             #     str_list = str_list[:i_dot+1] + [str(int(str_list[i_dot+1])+1)] + str_list[i_dot+2:]
             #     fmt_str = ''.join(str_list)
             if 'E' in self.fmt_str:
-                fmt_str = fmt_str.replace('E','')
+                fmt_str = fmt_str.replace('E', '')
                 out_str = fmt_str.format(self.value).upper()
                 if ('E' in out_str) and not ('.' in out_str):
                     out_str = out_str[2:]
@@ -1404,7 +1404,7 @@ class Incon(TOUGHBlock):
     def __init__(self, incons=None, footers=None):
         super().__init__(record_collections=incons, end_with_blank_line=True)
         if footers is None:
-            self.footers = []
+            self.footers = [' ']
         else:
             self.footers = footers
 

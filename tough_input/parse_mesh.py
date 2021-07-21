@@ -42,6 +42,7 @@ class Eleme():
                        ('nadd', 'U5'),
                        ('ma1', 'U3'),
                        ('ma2', 'U2'),
+                       ('ma', 'U5'),
                        ('volx', np.float64),
                        ('ahtx', np.float64),
                        ('pmx', np.float64),
@@ -56,6 +57,7 @@ class Eleme():
         data_eleme['nadd'] = self.nadd
         data_eleme['ma1'] = self.ma1
         data_eleme['ma2'] = self.ma2
+        data_eleme['ma'] = self.ma1 + self.ma2
         data_eleme['volx'] = self.volx
         data_eleme['pmx'] = 1.0 if self.pmx is None else self.pmx
         data_eleme['ahtx'] = 0.0 if self.ahtx is None else self.ahtx
@@ -64,6 +66,7 @@ class Eleme():
         data_eleme['z'] = self.z
 
         return data_eleme
+
 
 class ElemeCollection():
     """ represents an ordered set of Elements, as read from the mesh file """
@@ -167,8 +170,10 @@ class ElemeCollection():
         # Print ELEME list to file 'f' (either filename or handle)
         hdr = 'ELEME----1----*----2----*----3----*----4----*----5----*----6----*----7----*----8'
         data_eleme = self.as_numpy_array()
-        fmt = ['%5s', '%5s', '%5s', '%3s', '%2s', '%10.4E', '%10.4E','%10.4E','%10.4E','%10.4E','%10.4E']
-        np.savetxt(f, data_eleme, header=hdr, delimiter='', fmt=fmt, comments='')
+        names = list(data_eleme.dtype.names)
+        new_names = names[:5] + names[6:]
+        fmt = ['%5s', '%5s', '%5s', '%3s', '%2s', '%10.4E', '%10.4E', '%10.4E', '%10.4E', '%10.4E', '%10.4E']
+        np.savetxt(f, data_eleme[new_names], header=hdr, delimiter='', fmt=fmt, comments='')
 
         return None
 
@@ -449,8 +454,8 @@ class Mesh():
 
         return None
 
-    def replace_nodes_of_type(self, from_ma, to_ma, bound_el=False, bound_el_name = None, new_vol = None, d12 = None,
-                              new_ahtx = 0.0, new_pmx = 1.0, new_x = 0.0, new_y = 0.0, new_z = 0.0,
+    def replace_nodes_of_type(self, from_ma, to_ma, bound_el=False, bound_el_name=None, new_vol=None, d12=None,
+                              new_ahtx=0.0, new_pmx=1.0, new_x=0.0, new_y=0.0, new_z=0.0,
                               elem_data=None, iex_rm=None, new_els=None, update_elements=True,
                               conn_data=None, icx_rm=None, update_connections=True):
 
@@ -466,7 +471,8 @@ class Mesh():
             # Generate a fresh numpy array of Eleme data:
             elem_data = self.nodes.as_numpy_array()
 
-        elem_list = np.where(np.logical_and(elem_data['ma1'] == from_ma[:-2], elem_data['ma2'] == from_ma[-2:]))[0]
+        # elem_list = np.where(np.logical_and(elem_data['ma1'] == from_ma[:-2], elem_data['ma2'] == from_ma[-2:]))[0]
+        elem_list = np.nonzero(elem_data['ma'] == from_ma)[0]
         el_list = elem_data['name'][elem_list]
 
         if (from_ma != to_ma) and (not bound_el):
@@ -491,7 +497,7 @@ class Mesh():
             # Generate a new boundary element (Eleme object):
             new_el = Eleme(bound_el_name, '', '', to_ma[:-2], to_ma[-2:], volx if new_vol == None else new_vol,
                            new_ahtx, new_pmx, new_x, new_y, new_z)
-            elem_data = np.append(elem_data, new_el.as_numpy_array())
+            elem_data = np.append(elem_data, new_el.as_numpy_array()[0])
             if new_els is None:
                 # Start list of new Eleme objects to append to Eleme object list
                 new_els = [new_el]
@@ -505,6 +511,7 @@ class Mesh():
             if conn_data is None:
                 # Generate a fresh numpy array of ConneCollection data:
                 conn_data = self.connections.as_numpy_array()
+
             # Find connections having n1 as a boundary element:
             idx_1 = np.nonzero(np.isin(conn_data['name1'], el_list))[0]
             # Find connections having n2 as a boundary element:
@@ -513,8 +520,14 @@ class Mesh():
             idx_12, i_rm_1, i_rm_2 = np.intersect1d(idx_1, idx_2, assume_unique=True, return_indices=True)
 
             if icx_rm is None:
+                # First pass
                 icx_rm = idx_12.tolist()
             else:
+                # This routine has been run before, so make sure all elements that have been higlighted for removal
+                # are considered.
+                # icx_rm_new = np.intersect1d(np.nonzero(np.isin(conn_data['name1'], elem_data['name'][iex_rm]))[0],
+                #                             np.nonzero(np.isin(conn_data['name2'], elem_data['name'][iex_rm]))[0]).tolist()
+                # icx_rm = np.unique(np.append(icx_rm, icx_rm_new)).tolist()
                 icx_rm = np.unique(np.append(icx_rm, idx_12)).tolist()
 
             # Then remove those indices from the list of connections to be modified
@@ -534,6 +547,13 @@ class Mesh():
                 # Update both element name and d1/d2 in CONNE entry:
                 conn_data['d1'][idx_1] = d12
                 conn_data['d2'][idx_2] = d12
+                # Find instances where both connections have d1 = d2 = d12
+                # (connected to a boundary element from a previous pass):
+                idx_multi_bounds = np.where((conn_data['d1'] == d12) & (conn_data['d2'] == d12))[0]
+                if idx_multi_bounds.tolist():
+                    # Remove connections to boundary elements created from previous pass (assuming the same d12 was
+                    # used in that previous pass):
+                    icx_rm = np.unique(np.append(icx_rm, idx_multi_bounds)).tolist()
                 self.connections.update_from_numpy_array(conn_data, col_names=['name1', 'd1'], idx=idx_1)
                 self.connections.update_from_numpy_array(conn_data, col_names=['name2', 'd2'], idx=idx_2)
 
