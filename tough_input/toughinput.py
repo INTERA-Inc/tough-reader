@@ -3,10 +3,11 @@ Parse a TOUGH2 MESH file
 
 For python 3.4
 """
-
+import ast
 import os
 # import pickle
 import numpy as np
+import io
 # import pandas as pd
 
 
@@ -43,7 +44,12 @@ class TOUGHInput:
 
     def to_file(self, fn):
         f = open(fn, 'w')
-        f.write(self.title)
+
+        if type(self.title) == str:
+            f.write(self.title)
+        elif type(self.title) == list:
+            for title_line in self.title:
+                f.write(title_line + '\n')
 
         data_str = ''
         for block in self.blocks:
@@ -54,6 +60,46 @@ class TOUGHInput:
         f.close()
 
         return None
+
+    @property
+    def keyword_list(self):
+        keyword_list = []
+        if self.blocks is not None:
+            for block in self.blocks:
+                keyword_list.append(block.keyword)
+        return keyword_list
+
+    @classmethod
+    def from_file(cls, fn):
+
+        title = ''
+        eligible_keywords = TOUGHBlock.get_eligible_keywords()
+        f = open(fn, 'r')
+        f_data = f.readlines()
+        blocks = []
+
+        while len(f_data) > 0:
+            line = f_data[0]
+            if line[:5] in eligible_keywords:
+                # Start filling in block info.
+                keyword = line[:5]
+                block_cls_str = keyword[0] + keyword[1:].lower()
+                lines, i_lines = globals()[block_cls_str].find_lines_from_list(f_data, return_indices=True)
+                block = globals()[block_cls_str].block_from_lines(lines)
+                blocks.append(block)
+                f_data = f_data[i_lines[-1]+1:]
+            else:
+                # Title line(s):
+                if type(title) is str:
+                    if title == '':
+                        title = line.strip('\n')
+                    else:
+                        title = [title, line.strip('\n')]
+                elif type(title) is list:
+                    title.append(line.strip('\n'))
+                f_data = f_data[1:]
+
+        return cls(title, blocks=blocks)
 
 
 class TOUGHBlock:
@@ -78,41 +124,67 @@ class TOUGHBlock:
                 'MOMOP', 'REACT', 'OUTPU', 'ENDFI', 'ENDCY']
 
     @classmethod
-    def from_file(cls, fn, trc=None, end_with_blank_line=False):
+    def from_file(cls, fn, trc=None, end_with_blank_line=False, return_line_indices=False):
         # This routine reads block information from a file.  First, it finds the lines of the file containing pertinent
         # block data.  Then, it parses those lines for each record collection until all lines have been read.
 
-        lines = cls.find_lines(fn, end_with_blank_line=end_with_blank_line)
-        # Check for blocks (like ROCKS) that end with blank lines but could have an empty line before end of block
-        if (not end_with_blank_line) and (not lines or lines[-1].strip() == ''):
-            # end_with_blank_line indicates false, but last line is blank, so remove last line
-            lines = lines[:-1]
-        return cls.block_from_lines(lines, trc=trc)
+        if return_line_indices:
+            lines, ind_lines = cls.find_lines(fn, end_with_blank_line=end_with_blank_line, return_indices=True)
+        else:
+            ind_lines = None
+            lines = cls.find_lines(fn, end_with_blank_line=end_with_blank_line)
+        # # Check for blocks (like ROCKS) that end with blank lines but could have an empty line before end of block
+        # if (not end_with_blank_line) and (not lines or lines[-1].strip() == ''):
+        #     # end_with_blank_line indicates False, but last line is blank, so remove last line
+        #     lines = lines[:-1]
+        if return_line_indices:
+            # User requested the line indices where block appears in file
+            return cls.block_from_lines(lines, trc=trc), ind_lines
+        else:
+            return cls.block_from_lines(lines, trc=trc)
 
     @classmethod
-    def find_lines(cls, fn, end_with_blank_line=False):
+    def find_lines(cls, fn, end_with_blank_line=False, return_indices=False):
         # This method reads in all records from a TOUGH Block and pulls in all text lines need to generate
         # a TOUGHBlock object.
+        f = open(fn, 'r')
+        lines_list = f.readlines()
+        return cls.find_lines_from_list(lines_list, end_with_blank_line, return_indices=return_indices)
+
+    @classmethod
+    def find_lines_from_list(cls, lines_list, end_with_blank_line=False, return_indices=False):
+
         keyword = cls.__name__[:5].upper()
         eligible_keywords = cls.get_eligible_keywords()
         lines = []
+        i_lines = []
         read_lines = False
-        with open(fn, 'r') as f:
-            for line in f:
-                if line[:len(keyword)] == keyword:
-                    read_lines = True
-                    continue
-                if read_lines:
-                    if line[:5] in eligible_keywords:
-                        break
-                    elif end_with_blank_line and not line.strip():
-                        break
-                    elif cls.__base__.__name__ == 'TOUGHZeroLineBlock':
-                        break
-                    else:
-                        lines.append(line)
 
-        return lines
+        for i_line, line in enumerate(lines_list):
+            if line[:len(keyword)] == keyword:
+                i_lines.append(i_line)
+                read_lines = True
+                continue
+            if read_lines:
+                if line[:5] in eligible_keywords:
+                    break
+                elif end_with_blank_line and not line.strip():
+                    break
+                elif cls.__base__.__name__ == 'TOUGHZeroLineBlock':
+                    break
+                else:
+                    i_lines.append(i_line)
+                    lines.append(line)
+
+        # Check for blocks (like ROCKS) that end with blank lines but could have an empty line before end of block
+        if (not end_with_blank_line) and (not lines or lines[-1].strip() == ''):
+            # end_with_blank_line indicates False, but last line is blank, so remove last line
+            lines = lines[:-1]
+
+        if return_indices:
+            return lines, i_lines
+        else:
+            return lines
 
     @classmethod
     def block_from_lines(cls, lines, trc=None):
@@ -188,12 +260,28 @@ class TOUGHSimpleBlock(TOUGHBlock):
         self.names = []
 
     @classmethod
-    def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False):
+    def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
         if trc is None:
             trc = TOUGHRecordCollection
-        block = super().from_file(fn, trc=trc)
+        if return_line_indices:
+            block, ind_lines = super().from_file(fn, trc=trc, return_line_indices=True)
+        else:
+            ind_lines = None
+            block = super().from_file(fn, trc=trc, return_line_indices=False)
         block.names = [] if names is None else names
+        # block.elevate_attributes()
+
+        if return_line_indices:
+            return block, ind_lines
+        else:
+            return block
+
+    @classmethod
+    def block_from_lines(cls, lines, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
+        block = super().block_from_lines(lines, trc=trc)
+        block.names = names
         block.elevate_attributes()
+
         return block
 
     def to_file(self, fname=None, update_records=True, prepend_line=None):
@@ -225,12 +313,20 @@ class TOUGHSimpleBlock(TOUGHBlock):
 class TOUGHOneLineBlock(TOUGHBlock):
 
     @classmethod
-    def from_file(cls, fn, trc=None, end_with_blank_line=False):
-        block = super().from_file(fn, trc=trc, end_with_blank_line=end_with_blank_line)
+    def from_file(cls, fn, trc=None, end_with_blank_line=False, return_line_indices=False):
+        if return_line_indices:
+            block, ind_lines = super().from_file(fn, trc=trc, end_with_blank_line=end_with_blank_line,
+                                                 return_line_indices=True)
+        else:
+            ind_lines = None
+            block = super().from_file(fn, trc=trc, end_with_blank_line=end_with_blank_line)
         for name in block.record_collections[0].names:
             # Pull attributes from record collection up to block level
             setattr(block, name, getattr(block.record_collections[0], name))
-        return block
+        if return_line_indices:
+            return block, ind_lines
+        else:
+            return block
 
     def to_file(self, fname=None, update_records=True, prepend_line=None):
         if update_records:
@@ -570,8 +666,13 @@ class Rocks(TOUGHBlock):
         super().__init__(record_collections=rocks, trc=Rock, end_with_blank_line=True)
 
     @classmethod
-    def from_file(cls, fn, trc=None, end_with_blank_line=False):
-        return super().from_file(fn, trc=Rock, end_with_blank_line=end_with_blank_line)
+    def from_file(cls, fn, trc=None, end_with_blank_line=False, return_line_indices=False):
+        return super().from_file(fn, trc=Rock, end_with_blank_line=end_with_blank_line,
+                                 return_line_indices=return_line_indices)
+
+    @classmethod
+    def block_from_lines(cls, lines, trc=None):
+        return super().block_from_lines(lines, trc=Rock)
 
 
 class Rock(TOUGHRecordCollection):
@@ -588,7 +689,7 @@ class Rock(TOUGHRecordCollection):
         args = (mat, drok, por, per, cwet, spht)
         kwargs = {'com':com, 'expan':expan, 'cdry':cdry, 'tortx': tortx, 'gk':gk, 'xkd3':xkd3, 'xkd4':xkd4,
                   'irp':irp, 'rp':rp, 'icp':icp, 'cp':cp}
-        self.update_records(*args,**kwargs)
+        self.update_records(*args, **kwargs)
 
     @classmethod
     def empty(cls):
@@ -698,17 +799,21 @@ class Rock(TOUGHRecordCollection):
         return args, kwargs
 
 
-class RpCap(TOUGHBlock):
+class Rpcap(TOUGHBlock):
 
     def __init__(self, rpcp=None):
 
         super().__init__(record_collections=rpcp)
-        self.names = [['irp'],['icp']]
+        self.names = [['irp'], ['icp']]
 
     @classmethod
-    def from_file(cls, fn, trc=None, end_with_blank_line=False):
-        return super().from_file(fn, trc=RpCp, end_with_blank_line=end_with_blank_line)
+    def from_file(cls, fn, trc=None, end_with_blank_line=False, return_line_indices=False):
+        return super().from_file(fn, trc=RpCp, end_with_blank_line=end_with_blank_line,
+                                 return_line_indices=return_line_indices)
 
+    @classmethod
+    def block_from_lines(cls, lines, trc=None):
+        return super().block_from_lines(lines, trc=RpCp)
 
 def get_rpcp_list(data_record_snippet):
 
@@ -782,7 +887,7 @@ class CapPress(TOUGHRecord):
             self.append((None, c, '{:>10.4E}'))
 
 
-class Multi(TOUGHOneLineBlock):
+class Multi(TOUGHSimpleBlock):
 
     def __init__(self, multi=None, nk=None, neq=None, nph=2, nb=6, nkin=None):
         super().__init__(record_collections=multi, trc=Mult)
@@ -795,9 +900,15 @@ class Multi(TOUGHOneLineBlock):
             self.nkin = nkin
 
     @classmethod
-    def from_file(cls, fn, trc=None, end_with_blank_line=False):
-        block = super().from_file(fn, trc=Mult)
+    def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
+        names = ['nk', 'neq', 'nph', 'nb', 'nkin']
+        block = super().from_file(fn, names=names, trc=Mult, return_line_indices=return_line_indices)
         return block
+
+    @classmethod
+    def block_from_lines(cls, lines, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
+        names = ['nk', 'neq', 'nph', 'nb', 'nkin']
+        return super().block_from_lines(lines, names=names, trc=Mult, return_line_indices=return_line_indices)
 
 
 class Mult(TOUGHRecordCollection):
@@ -833,7 +944,7 @@ class Mult(TOUGHRecordCollection):
         return Mult(0)
 
 
-class Momop(TOUGHOneLineBlock):
+class Momop(TOUGHBlock):
 
     def __init__(self, mop2=None, mop2_list=None):
         super().__init__(record_collections=mop2, trc=Mop2)
@@ -843,9 +954,13 @@ class Momop(TOUGHOneLineBlock):
             setattr(self, 'mop2', mop2_list + (27-len(mop2_list))*[None])
 
     @classmethod
-    def from_file(cls, fn, trc=None, end_with_blank_line=False):
-        block = super().from_file(fn, trc=Mop2)
+    def from_file(cls, fn, trc = None, end_with_blank_line=False, return_line_indices=False):
+        block = super().from_file(fn, Mop2, end_with_blank_line, return_line_indices)
         return block
+
+    @classmethod
+    def block_from_lines(cls, lines, trc=None):
+        return super().block_from_lines(lines, trc=Mop2)
 
 
 class Mop2(TOUGHRecordCollection):
@@ -1066,13 +1181,23 @@ class Param(TOUGHSimpleBlock):
         #     self.elevate_attributes()
 
     @classmethod
-    def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False):
+    def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
         names = ['noite', 'kdata', 'mcyc', 'msec', 'mcypr', 'mop', 'texp', 'be',
                  'tstart', 'timax', 'delten', 'deltmx', 'elst', 'gf', 'redlt', 'scale',
                  'dlt',
                  're1', 're2', 'wup', 'wnr', 'dfac',
                  'dep']
-        return super().from_file(fn, trc=ParamCollection, names=names)
+        return super().from_file(fn, names=names, trc=ParamCollection, return_line_indices=return_line_indices)
+
+    @classmethod
+    def block_from_lines(cls, lines, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
+        names = ['noite', 'kdata', 'mcyc', 'msec', 'mcypr', 'mop', 'texp', 'be',
+                 'tstart', 'timax', 'delten', 'deltmx', 'elst', 'gf', 'redlt', 'scale',
+                 'dlt',
+                 're1', 're2', 'wup', 'wnr', 'dfac',
+                 'dep']
+        return super().block_from_lines(lines, names=names, trc=ParamCollection,
+                                        return_line_indices=return_line_indices)
 
     def to_file(self, fname=None, update_records=True, prepend_line=None):
         pl = '----*----1--MOP:123456789*123456789*1234----*----5----*----6----*----7----*----8'
@@ -1289,8 +1414,9 @@ class Gener(TOUGHBlock):
         super().__init__(record_collections=gener_terms, end_with_blank_line=True)
 
     @classmethod
-    def from_file(cls, fn, trc=None, end_with_blank_line=True):
-        return super().from_file(fn, trc=GenerTerm, end_with_blank_line=end_with_blank_line)
+    def from_file(cls, fn, trc=None, end_with_blank_line=True, return_lines_indices=False):
+        return super().from_file(fn, trc=GenerTerm, end_with_blank_line=end_with_blank_line,
+                                 return_line_indices=return_lines_indices)
 
 
 class GenerTerm(TOUGHRecordCollection):
@@ -1454,49 +1580,69 @@ class Incon(TOUGHBlock):
             self.footers = footers
 
     @classmethod
-    def from_file(cls, fn, trc=None, end_with_blank_line=True, extra_record=False):
+    def from_file(cls, fn, trc=None, end_with_blank_line=True, extra_record=False, return_line_indices=False):
         print('Finding lines in file:')
-        lines, footers = cls.find_lines(fn, end_with_blank_line=end_with_blank_line)
-        print('Footers: ' + str(footers))
-        print('Generating block from lines of text...')
+        if return_line_indices:
+            lines, footers, ind_lines = cls.find_lines(fn, end_with_blank_line=end_with_blank_line, return_indices=True)
+        else:
+            ind_lines = None
+            lines, footers = cls.find_lines(fn, end_with_blank_line=end_with_blank_line, return_indices=False)
+
         block = cls.block_from_lines(lines, trc=InconCollection, extra_record=extra_record)
-        print('Generated block object')
         block.footers = footers
-        return block
+        if return_line_indices:
+            return block, ind_lines
+        else:
+            return block
 
     @classmethod
-    def find_lines(cls, fn, end_with_blank_line=False):
+    def find_lines(cls, fn, end_with_blank_line=False, return_indices=False):
+        # This method reads in all records from a TOUGH Block and pulls in all text lines need to generate
+        # a TOUGHBlock object.
+        f = open(fn, 'r')
+        lines_list = f.readlines()
+        return cls.find_lines_from_list(lines_list, end_with_blank_line, return_indices)
+
+    @classmethod
+    def find_lines_from_list(cls, lines_list, end_with_blank_line=False, return_indices=False):
         # This method reads in all records from a TOUGH Block and pulls in all text lines need to generate
         # a TOUGHBlock object.
         keyword = cls.__name__[:5].upper()
         eligible_keywords = cls.get_eligible_keywords()
         lines = []
         footers = []
+        ind_lines = []
         read_footer = False
         read_lines = False
-        with open(fn, 'r') as f:
-            for line in f:
-                if line[:len(keyword)] == keyword:
-                    read_lines = True
-                    continue
-                if read_lines:
-                    if read_footer:
-                        if end_with_blank_line and not line.strip():
-                            break
-                        else:
-                            footers.append(line)
+        for i_line, line in lines_list:
+            if line[:len(keyword)] == keyword:
+                read_lines = True
+                ind_lines.append(i_line)
+                continue
+            if read_lines:
+                if read_footer:
+                    if end_with_blank_line and not line.strip():
+                        break
                     else:
-                        if (line[:5] in eligible_keywords) or (line[:4] in eligible_keywords):
-                            break
-                        elif end_with_blank_line and not line.strip():
-                            break
-                        elif line[:3] == '+++':
-                            footers.append(line)
-                            read_footer = True
-                        else:
-                            lines.append(line)
+                        ind_lines.append(line)
+                        footers.append(line)
+                else:
+                    if line[:5] in eligible_keywords:
+                        break
+                    elif end_with_blank_line and not line.strip():
+                        break
+                    elif line[:3] == '+++':
+                        ind_lines.append(i_line)
+                        footers.append(line)
+                        read_footer = True
+                    else:
+                        ind_lines.append(line)
+                        lines.append(line)
 
-        return lines, footers
+        if return_indices:
+            return lines, footers, ind_lines
+        else:
+            return lines, footers
 
     @classmethod
     def block_from_lines(cls, lines, trc=None, extra_record=False):
@@ -1594,7 +1740,7 @@ class InconCollection(TOUGHRecordCollection):
         block, _ = super().from_file(data_record[0])
         final_record = 1 + int(extra_record)
         x, _ = block.read_table(data_record[1:final_record+1], None, 4, '{:>20.13E}')
-        setattr(block,'x', x)
+        setattr(block, 'x', x)
 
         return block, data_record[final_record:]
 
@@ -1628,7 +1774,7 @@ class IndomCollection(InconCollection):
 
     @classmethod
     def empty(cls):
-        return IndomCollection('NOMAT',[0.0])
+        return IndomCollection('NOMAT', [0.0])
 
 
 if __name__ == '__main__':
@@ -1637,10 +1783,11 @@ if __name__ == '__main__':
 
     # base_dir = os.path.join(os.pardir, 'test_data')
     base_dir = os.path.join(up(up(up(os.getcwd()))), 'output')
-    fname = os.path.join(base_dir, 'flow.inp')
+    fname = os.path.join(base_dir, 'flow_chk.inp')
     # param = Param.from_file(fname)
-    start = Endcy.from_file(fname)
-    print(start.to_file())
+    # rocks, i_lines = Momop.from_file(fname, return_line_indices=True)
+    tough_input = TOUGHInput.from_file(fname)
+    print(tough_input.keyword_list)
     exit()
     fname_out = os.path.join(base_dir, 'INFILE_chk')
 
