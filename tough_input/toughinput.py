@@ -84,7 +84,7 @@ class TOUGHBlock:
 
         lines = cls.find_lines(fn, end_with_blank_line=end_with_blank_line)
         # Check for blocks (like ROCKS) that end with blank lines but could have an empty line before end of block
-        if (not end_with_blank_line) and (lines[-1].strip() == ''):
+        if (not end_with_blank_line) and (not lines or lines[-1].strip() == ''):
             # end_with_blank_line indicates false, but last line is blank, so remove last line
             lines = lines[:-1]
         return cls.block_from_lines(lines, trc=trc)
@@ -103,9 +103,11 @@ class TOUGHBlock:
                     read_lines = True
                     continue
                 if read_lines:
-                    if (line[:5] in eligible_keywords) or (line[:4] in eligible_keywords):
+                    if line[:5] in eligible_keywords:
                         break
                     elif end_with_blank_line and not line.strip():
+                        break
+                    elif cls.__base__.__name__ == 'TOUGHZeroLineBlock':
                         break
                     else:
                         lines.append(line)
@@ -244,6 +246,20 @@ class TOUGHOneLineBlock(TOUGHBlock):
                     setattr(self.record_collections, name, getattr(self, name))
 
         return super().to_file(fname=fname, update_records=update_records, prepend_line=prepend_line)
+
+
+class TOUGHZeroLineBlock(TOUGHBlock):
+
+    def to_file(self, fname=None, update_records=True, prepend_line=None):
+
+        block_str = self.keyword + '----1----*----2----*----3----*----4----*----5----*----6----*----7----*----8'
+
+        if fname is not None:
+            f = open(fname, 'w')
+            f.write(block_str)
+            f.close()
+
+        return block_str
 
 
 class TOUGHRecordCollection:
@@ -998,15 +1014,15 @@ class TimesCollection(TOUGHRecordCollection):
             return times_collection, []
 
 
-class Start(TOUGHBlock):
+class Start(TOUGHZeroLineBlock):
     pass
 
 
-class Endfi(TOUGHBlock):
+class Endfi(TOUGHZeroLineBlock):
     pass
 
 
-class Endcy(TOUGHBlock):
+class Endcy(TOUGHZeroLineBlock):
     pass
 
 
@@ -1623,8 +1639,8 @@ if __name__ == '__main__':
     base_dir = os.path.join(up(up(up(os.getcwd()))), 'output')
     fname = os.path.join(base_dir, 'flow.inp')
     # param = Param.from_file(fname)
-    momop = Momop.from_file(fname)
-    print(momop.to_file())
+    start = Endcy.from_file(fname)
+    print(start.to_file())
     exit()
     fname_out = os.path.join(base_dir, 'INFILE_chk')
 
