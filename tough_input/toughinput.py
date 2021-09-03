@@ -73,9 +73,9 @@ class TOUGHBlock:
 
     @classmethod
     def get_eligible_keywords(cls):
-        return ['MESHM','ROCKS','RCPAP','MULTI','START','PARAM','INDOM','INCON','SOLVR','FOFT',
-                'COFT', 'GOFT', 'NOVER','DIFFU','SELEC','RPCAP','TIMES','ELEME','CONNE','GENER',
-                'MOMOP','REACT','OUTPU','ENDFI','ENDCY']
+        return ['MESHM', 'ROCKS', 'RCPAP', 'MULTI', 'START', 'PARAM', 'INDOM', 'INCON', 'SOLVR', 'FOFT ',
+                'COFT ', 'GOFT ', 'NOVER', 'DIFFU', 'SELEC', 'RPCAP', 'TIMES', 'ELEME', 'CONNE', 'GENER',
+                'MOMOP', 'REACT', 'OUTPU', 'ENDFI', 'ENDCY']
 
     @classmethod
     def from_file(cls, fn, trc=None, end_with_blank_line=False):
@@ -83,6 +83,10 @@ class TOUGHBlock:
         # block data.  Then, it parses those lines for each record collection until all lines have been read.
 
         lines = cls.find_lines(fn, end_with_blank_line=end_with_blank_line)
+        # Check for blocks (like ROCKS) that end with blank lines but could have an empty line before end of block
+        if (not end_with_blank_line) and (lines[-1].strip() == ''):
+            # end_with_blank_line indicates false, but last line is blank, so remove last line
+            lines = lines[:-1]
         return cls.block_from_lines(lines, trc=trc)
 
     @classmethod
@@ -143,7 +147,7 @@ class TOUGHBlock:
 
         return None
 
-    def to_file(self, fname = None, update_records=True, prepend_line=None):
+    def to_file(self, fname=None, update_records=True, prepend_line=None):
         block_str = ''
         if prepend_line is not None:
             block_str += prepend_line + '\n'
@@ -154,6 +158,7 @@ class TOUGHBlock:
             rcs = [self.record_collections]
         for rc in rcs:
             block_str += rc.to_file(update_records=update_records)
+
         if self.end_with_blank_line:
             block_str += '\n'
 
@@ -176,7 +181,7 @@ class TOUGHBlock:
 
 class TOUGHSimpleBlock(TOUGHBlock):
 
-    def __init__(self, record_collections = None, trc = None, end_with_blank_line = False):
+    def __init__(self, record_collections=None, trc=None, end_with_blank_line=False):
         super().__init__(record_collections=record_collections, trc=trc, end_with_blank_line=end_with_blank_line)
         self.names = []
 
@@ -549,7 +554,7 @@ class Rocks(TOUGHBlock):
         super().__init__(record_collections=rocks, trc=Rock, end_with_blank_line=True)
 
     @classmethod
-    def from_file(cls, fn, trc=None, end_with_blank_line=True):
+    def from_file(cls, fn, trc=None, end_with_blank_line=False):
         return super().from_file(fn, trc=Rock, end_with_blank_line=end_with_blank_line)
 
 
@@ -689,6 +694,23 @@ class RpCap(TOUGHBlock):
         return super().from_file(fn, trc=RpCp, end_with_blank_line=end_with_blank_line)
 
 
+def get_rpcp_list(data_record_snippet):
+
+    # Create a list of RPCAP variables given snippet from input file
+    data_record_snippet = data_record_snippet.rstrip()
+    rpcp_list = []
+
+    while len(data_record_snippet) > 0:
+        data_entry = data_record_snippet[:10]
+        if data_entry.strip() == '':
+            rpcp_list.append(None)
+        else:
+            rpcp_list.append(float(data_entry))
+        data_record_snippet = data_record_snippet[10:]
+
+    return rpcp_list
+
+
 class RpCp(TOUGHRecordCollection):
 
     def __init__(self, irp, rp, icp, cp):
@@ -714,9 +736,12 @@ class RpCp(TOUGHRecordCollection):
     def from_file(cls, data_record):
 
         irp = int(data_record[0][:5])
-        rp = [float(rp_i) for rp_i in data_record[0][10:].split()]
+        rp = get_rpcp_list(data_record[0][10:])
+        # rp = [float(rp_i) for rp_i in data_record[0][10:].split()]
+
         icp = int(data_record[1][:5])
-        cp = [float(cp_i) for cp_i in data_record[1][10:].split()]
+        cp = get_rpcp_list(data_record[1][10:])
+        # cp = [float(cp_i) for cp_i in data_record[1][10:].split()]
 
         return RpCp(irp, rp, icp, cp), []
 
@@ -985,6 +1010,10 @@ class Endcy(TOUGHBlock):
     pass
 
 
+class Outpu(TOUGHBlock):
+    pass
+
+
 class Param(TOUGHSimpleBlock):
 
     def __init__(self, param_collection=None,
@@ -1138,7 +1167,7 @@ class ParamCollection(TOUGHRecordCollection):
                 setattr(pc, entry.name, entry.value)
 
         # PARAM.2.1, 2.2, etc.:
-        delten = getattr(pc,'delten')
+        delten = getattr(pc, 'delten')
         next_rec = 2
         if delten is not None and delten < 0.0:
             # Read in table of times values
@@ -1156,7 +1185,7 @@ class ParamCollection(TOUGHRecordCollection):
                 setattr(pc, entry.name, entry.value)
 
         # PARAM.4:
-        pc.dep, _ = pc.read_table(data_record[1:-1], None, 4, '{:>20.13E}')
+        pc.dep, _ = pc.read_table(data_record[1:], None, 4, '{:>20.13E}')
 
         return pc, []
 
@@ -1588,8 +1617,15 @@ class IndomCollection(InconCollection):
 
 if __name__ == '__main__':
 
-    base_dir = os.path.join(os.pardir,'test_data')
-    fname = os.path.join(base_dir, 'INFILE')
+    from os.path import dirname as up
+
+    # base_dir = os.path.join(os.pardir, 'test_data')
+    base_dir = os.path.join(up(up(up(os.getcwd()))), 'output')
+    fname = os.path.join(base_dir, 'flow.inp')
+    # param = Param.from_file(fname)
+    momop = Momop.from_file(fname)
+    print(momop.to_file())
+    exit()
     fname_out = os.path.join(base_dir, 'INFILE_chk')
 
     incon = Incon.from_file(fname, extra_record=True)
