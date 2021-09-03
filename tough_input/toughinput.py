@@ -255,6 +255,8 @@ class TOUGHBlock:
 
 class TOUGHSimpleBlock(TOUGHBlock):
 
+    # This is a subset of TOUGH blocks that contain only a single TOUGHRecordCollection
+
     def __init__(self, record_collections=None, trc=None, end_with_blank_line=False):
         super().__init__(record_collections=record_collections, trc=trc, end_with_blank_line=end_with_blank_line)
         self.names = []
@@ -887,6 +889,9 @@ class CapPress(TOUGHRecord):
             self.append((None, c, '{:>10.4E}'))
 
 
+
+
+
 class Multi(TOUGHSimpleBlock):
 
     def __init__(self, multi=None, nk=None, neq=None, nph=2, nb=6, nkin=None):
@@ -1142,7 +1147,39 @@ class Endcy(TOUGHZeroLineBlock):
 
 
 class Outpu(TOUGHBlock):
-    pass
+
+    def __init__(self, outputrequests=None, coutfm=None):
+
+        super().__init__(record_collections=outputrequests, trc=OutputRequests)
+        self.coutfm = coutfm
+
+    @property
+    def moutvar(self):
+        return len(self.record_collections)
+
+    @classmethod
+    def from_file(cls, fn, trc=None, end_with_blank_line=False, return_line_indices=False):
+        return super().from_file(fn, trc=OutputRequests, end_with_blank_line=end_with_blank_line,
+                                 return_line_indices=return_line_indices)
+
+    @classmethod
+    def block_from_lines(cls, lines, trc=None):
+        return super().block_from_lines(lines, trc=OutputRequests)
+
+
+class OutputRequests(TOUGHRecordCollection):
+
+    def __init__(self, output_requests, ):
+
+        super().__init__(records=output_requests)
+
+
+class OutputRequest(TOUGHRecord):
+
+    def __init__(self, coutln, id1=None, id2=None):
+
+        super().__init__()
+        self.append([('coutln', coutln, '{:>20}'), ('id1', id1, '{:>5}'), ('id2', id2, '{:>5}')])
 
 
 class Param(TOUGHSimpleBlock):
@@ -1784,7 +1821,8 @@ if __name__ == '__main__':
     # base_dir = os.path.join(os.pardir, 'test_data')
     base_dir = os.path.join(up(up(up(os.getcwd()))), 'output')
     fname = os.path.join(base_dir, 'flow_chk.inp')
-    # param = Param.from_file(fname)
+    param = Param.from_file(fname)
+    exit()
     # rocks, i_lines = Momop.from_file(fname, return_line_indices=True)
     tough_input = TOUGHInput.from_file(fname)
     print(tough_input.keyword_list)

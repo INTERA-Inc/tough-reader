@@ -770,9 +770,36 @@ def gen_connections(fname):
 
 if __name__ == '__main__':
 
-    pdir = os.path.join(".", "data_eos5_simu")
-    mesh_filename = 'SMA_ZNO_2Dhr_gv1_pv1_gas'
-    pck_file = os.path.join(pdir, 'temp_mesh.pck') # LC 12/05/2020
+    from os.path import dirname as up
+
+    # base_dir = os.path.join(os.pardir, 'test_data')
+    base_dir = os.path.join(up(up(up(os.getcwd()))), 'output')
+    fname = os.path.join(base_dir, 'MESHF')
+    pck_file = fname + '.pck'
+    mesh = Mesh.from_pickle(pck_file)
+
+    idx_aek70 = mesh.nodes.name2idx['AEK70']
+    bottom_gener_el = mesh.nodes[idx_aek70]
+    connected_el_inds = bottom_gener_el.connected_elements
+    gener_con_inds = bottom_gener_el.connections
+    isn1_inds = bottom_gener_el.is_n1
+    beta_list = []
+    isot_list = []
+    con_els_names_list = []
+
+    for ci, cei in zip(gener_con_inds, connected_el_inds):
+        con_els_names_list.append(mesh.nodes[cei].name)
+        conn = mesh.connections[ci]
+        beta_list.append(conn.betax)
+        isot_list.append(conn.isot)
+
+    print(con_els_names_list)
+    print(isn1_inds)
+    print(beta_list)
+    print(isot_list)
+
+    exit()
+
 #    pdir = os.path.join(".", "test_data_stomp")
 #    mesh_filename = 'MESH_in'
 #    pck_file = os.path.join(pdir, 'temp_mesh.pck')
