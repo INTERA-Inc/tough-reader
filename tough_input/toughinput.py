@@ -1489,11 +1489,14 @@ class GenerTerm(TOUGHRecordCollection):
                 if itab is not None:
                     # Read in table of enthalpies (may be redundant now to make an if statement, 9/7/21)
                     gen_term.ex, lines = gen_term.read_table(lines, ltab, 4, '{:>14.7E}')
+            else:
+                lines = lines[1:]
         else:
             gen_term = super().from_file(lines[0])
             lines = []
 
         return gen_term, lines
+
 
     def update_records(self, *args, **kwargs):
 
@@ -1826,7 +1829,9 @@ if __name__ == '__main__':
     # base_dir = os.path.join(os.pardir, 'test_data')
     base_dir = os.path.join(up(up(up(os.getcwd()))), 'output')
     fname = os.path.join(base_dir, 'flow_chk.inp')
-    param = Param.from_file(fname)
+    fname_gnr = os.path.join(base_dir, 'GENER_tst')
+    gener = Gener.from_file(fname_gnr)
+    # param = Param.from_file(fname)
     exit()
     # rocks, i_lines = Momop.from_file(fname, return_line_indices=True)
     tough_input = TOUGHInput.from_file(fname)
