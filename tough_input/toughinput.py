@@ -1479,18 +1479,16 @@ class GenerTerm(TOUGHRecordCollection):
     def from_file(cls, lines, data_fmts=None):
         if type(lines) == list:
             gen_term, _ = super().from_file(lines[0])
+            lines = lines[1:]
             # Check if additional records are provided for this GENER term (time schedules of sources/sinks):
             ltab = getattr(gen_term, 'ltab')
             itab = getattr(gen_term, 'itab')
             if (ltab > 1) and (itab is not None):
                 # Read in table of times and generation rates:
-                gen_term.t_gen, lines = gen_term.read_table(lines[1:], ltab, 4, '{:>14.7E}')
+                gen_term.t_gen, lines = gen_term.read_table(lines, ltab, 4, '{:>14.7E}')
                 gen_term.gx, lines = gen_term.read_table(lines, ltab, 4, '{:>14.7E}')
-                if itab is not None:
-                    # Read in table of enthalpies (may be redundant now to make an if statement, 9/7/21)
-                    gen_term.ex, lines = gen_term.read_table(lines, ltab, 4, '{:>14.7E}')
-            else:
-                lines = lines[1:]
+                # Read in table of enthalpies
+                gen_term.ex, lines = gen_term.read_table(lines, ltab, 4, '{:>14.7E}')
         else:
             gen_term = super().from_file(lines[0])
             lines = []
