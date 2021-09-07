@@ -1459,16 +1459,17 @@ class Gener(TOUGHBlock):
 class GenerTerm(TOUGHRecordCollection):
 
     """ represents a term in the GENER block, with source/sink values and/or schedules """
-    def __init__(self, element, code_name, gen_type, gx, nseq=None, nadd=None, nads=None, t_gen=None, ex=None, hg=None):
+    def __init__(self, element, code_name, gen_type, gx, ltab=None, nseq=None, nadd=None, nads=None, t_gen=None,
+                 ex=None, hg=None):
         super().__init__()
         self.names = [['element', 'code_name', 'nseq', 'nadd', 'nads', 'ltab', 'type', 'itab', 'gx', 'ex', 'hg'],
                       ['t_gen'],
                       ['gx'],
                       ['ex']]
         args = [element, code_name, gen_type, gx]
-        kwargs = {'nseq':nseq, 'nadd':nadd, 'nads':nads, 't_gen':t_gen, 'ex':ex, 'hg':hg}
+        kwargs = {'ltab': ltab, 'nseq': nseq, 'nadd': nadd, 'nads': nads, 't_gen': t_gen, 'ex':ex, 'hg': hg}
 
-        self.update_records(*args,**kwargs)
+        self.update_records(*args, **kwargs)
 
     @classmethod
     def empty(cls):
@@ -1481,12 +1482,12 @@ class GenerTerm(TOUGHRecordCollection):
             # Check if additional records are provided for this GENER term (time schedules of sources/sinks):
             ltab = getattr(gen_term, 'ltab')
             itab = getattr(gen_term, 'itab')
-            if ltab > 1:
+            if (ltab > 1) and (itab is not None):
                 # Read in table of times and generation rates:
                 gen_term.t_gen, lines = gen_term.read_table(lines[1:], ltab, 4, '{:>14.7E}')
                 gen_term.gx, lines = gen_term.read_table(lines, ltab, 4, '{:>14.7E}')
                 if itab is not None:
-                    # Read in table of enthalpies
+                    # Read in table of enthalpies (may be redundant now to make an if statement, 9/7/21)
                     gen_term.ex, lines = gen_term.read_table(lines, ltab, 4, '{:>14.7E}')
         else:
             gen_term = super().from_file(lines[0])
@@ -1502,7 +1503,10 @@ class GenerTerm(TOUGHRecordCollection):
         self.gx = args[3]
         self.ex = kwargs['ex']
         self.hg = kwargs['hg']
-        ltab = 1 if self.t_gen is None else len(self.t_gen)
+        if kwargs['ltab'] is None:
+            ltab = 1 if self.t_gen is None else len(self.t_gen)
+        else:
+            ltab = kwargs['ltab']
         record = TOUGHRecord()
         record.append([('element', args[0], '{:>5}'),
                        ('code_name', args[1], '{:>5}'),
@@ -1542,8 +1546,8 @@ class GenerTerm(TOUGHRecordCollection):
         args_in = list(args)
         args = tuple(args_in[:2] + [args_in[6], args_in[8]])
         kwargs = {}
-        for name in ['nseq', 'nadd', 'nads', 't_gen', 'ex', 'hg']:
-            kwargs.update({name:getattr(self, name)})
+        for name in ['ltab', 'nseq', 'nadd', 'nads', 't_gen', 'ex', 'hg']:
+            kwargs.update({name: getattr(self, name)})
 
         return args, kwargs
 
@@ -1551,9 +1555,10 @@ class GenerTerm(TOUGHRecordCollection):
 class Sink(GenerTerm):
 
     """Represents a TOUGH Sink term, which is a special type of GenerTerm class"""
-    def __init__(self, element, code_name, gx, nseq=None, nadd=None, nads=None, t_gen=None, ex=None, hg=None):
+    def __init__(self, element, code_name, gx, ltab=None, nseq=None, nadd=None, nads=None, t_gen=None, ex=None,
+                 hg=None):
         super(Sink, self).__init__(element, code_name, 'MASS', -1.0*np.absolute(gx),
-                                   nseq=nseq, nadd=nadd, nads=nads, t_gen=t_gen, ex=ex, hg=hg)
+                                   ltab=ltab, nseq=nseq, nadd=nadd, nads=nads, t_gen=t_gen, ex=ex, hg=hg)
 
 
 class Diffu(TOUGHSimpleBlock):
