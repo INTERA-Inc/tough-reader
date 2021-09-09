@@ -42,16 +42,19 @@ class TOUGHInput:
 
         return None
 
+    def __getitem__(self, item):
+        return self.blocks[item]
+
     def to_file(self, fn):
         f = open(fn, 'w')
 
+        data_str = ''
         if type(self.title) == str:
-            f.write(self.title)
+            data_str += self.title
         elif type(self.title) == list:
             for title_line in self.title:
-                f.write(title_line + '\n')
+                data_str += title_line + '\n'
 
-        data_str = ''
         for block in self.blocks:
             data_str += '\n'
             data_str += block.to_file()
@@ -77,10 +80,12 @@ class TOUGHInput:
         f = open(fn, 'r')
         f_data = f.readlines()
         blocks = []
+        reading_blocks = False
 
         while len(f_data) > 0:
             line = f_data[0]
             if line[:5] in eligible_keywords:
+                reading_blocks = True
                 # Start filling in block info.
                 keyword = line[:5]
                 block_cls_str = keyword[0] + keyword[1:].lower()
@@ -89,14 +94,16 @@ class TOUGHInput:
                 blocks.append(block)
                 f_data = f_data[i_lines[-1]+1:]
             else:
-                # Title line(s):
-                if type(title) is str:
-                    if title == '':
-                        title = line.strip('\n')
-                    else:
-                        title = [title, line.strip('\n')]
-                elif type(title) is list:
-                    title.append(line.strip('\n'))
+                if not reading_blocks:
+                    # Title line(s):
+                    if type(title) is str:
+                        if title == '':
+                            title = line.strip('\n')
+                        else:
+                            title = [title, line.strip('\n')]
+                    elif type(title) is list:
+                        title.append(line.strip('\n'))
+                    print(title)
                 f_data = f_data[1:]
 
         return cls(title, blocks=blocks)
@@ -149,7 +156,7 @@ class TOUGHBlock:
         # a TOUGHBlock object.
         f = open(fn, 'r')
         lines_list = f.readlines()
-        return cls.find_lines_from_list(lines_list, end_with_blank_line, return_indices=return_indices)
+        return cls.find_lines_from_list(lines_list, end_with_blank_line, return_indices)
 
     @classmethod
     def find_lines_from_list(cls, lines_list, end_with_blank_line=False, return_indices=False):
@@ -189,6 +196,11 @@ class TOUGHBlock:
     @classmethod
     def block_from_lines(cls, lines, trc=None):
 
+        record_collections = cls.rcs_from_lines(lines, trc=trc)
+        return cls(record_collections)
+
+    @classmethod
+    def rcs_from_lines(cls, lines, trc=None):
         record_collections = []
         if trc is None:
             trc = TOUGHRecordCollection
@@ -199,7 +211,7 @@ class TOUGHBlock:
             rc, lines = trc.from_file(lines)
             record_collections.append(rc)
 
-        return cls(record_collections)
+        return record_collections
 
     def __getitem__(self, item):
         if self.record_collections is None:
@@ -226,12 +238,7 @@ class TOUGHBlock:
         if prepend_line is not None:
             block_str += prepend_line + '\n'
         block_str += self.keyword + '----1----*----2----*----3----*----4----*----5----*----6----*----7----*----8'
-        if type(self.record_collections) == list:
-            rcs = self.record_collections
-        else:
-            rcs = [self.record_collections]
-        for rc in rcs:
-            block_str += rc.to_file(update_records=update_records)
+        block_str += self.rcs_to_file(update_records=update_records)
 
         if self.end_with_blank_line:
             block_str += '\n'
@@ -240,6 +247,17 @@ class TOUGHBlock:
             f = open(fname, 'w')
             f.write(block_str)
             f.close()
+
+        return block_str
+
+    def rcs_to_file(self, update_records=True):
+        block_str = ''
+        if type(self.record_collections) == list:
+            rcs = self.record_collections
+        else:
+            rcs = [self.record_collections]
+        for rc in rcs:
+            block_str += rc.to_file(update_records=update_records)
 
         return block_str
 
@@ -1079,7 +1097,7 @@ class Times(TOUGHSimpleBlock):
         return None
 
     @classmethod
-    def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False):
+    def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
         return super().from_file(fn, trc=TimesCollection, names=['iti', 'ite', 'delaf', 'tinter', 'tis'])
 
 
@@ -1150,7 +1168,7 @@ class Outpu(TOUGHBlock):
 
     def __init__(self, outputrequests=None, coutfm=None):
 
-        super().__init__(record_collections=outputrequests, trc=OutputRequests)
+        super().__init__(record_collections=outputrequests, trc=OutputRequest)
         self.coutfm = coutfm
 
     @property
@@ -1159,27 +1177,98 @@ class Outpu(TOUGHBlock):
 
     @classmethod
     def from_file(cls, fn, trc=None, end_with_blank_line=False, return_line_indices=False):
-        return super().from_file(fn, trc=OutputRequests, end_with_blank_line=end_with_blank_line,
-                                 return_line_indices=return_line_indices)
+        out = cls.find_lines(fn, end_with_blank_line=end_with_blank_line, return_indices=return_line_indices)
+        if return_line_indices:
+            lines = out[0]
+            i_lines = out[1]
+        else:
+            lines = out[0]
+            i_lines = None
+
+        obj = cls.block_from_lines(lines, trc=OutputRequest)
+
+        if return_line_indices:
+            # User requested the line indices where block appears in file
+            return obj, i_lines
+        else:
+            return obj
 
     @classmethod
     def block_from_lines(cls, lines, trc=None):
-        return super().block_from_lines(lines, trc=OutputRequests)
+
+        line_0 = lines[0].strip()
+        if (line_0 == 'CSV') or (line_0 == 'TECPLOT') or (line_0 == 'PETRASIM'):
+            coutfm = line_0
+            lines = lines[2:]
+        else:
+            coutfm = None
+            lines = lines[1:]
+
+        record_collections = cls.rcs_from_lines(lines, trc=OutputRequest)
+        return cls(record_collections, coutfm=coutfm)
+
+    def to_file(self, fname=None, update_records=True, prepend_line=None):
+        block_str = ''
+        block_str += self.keyword + '----1----*----2----*----3----*----4----*----5----*----6----*----7----*----8'
+        if self.coutfm is not None:
+            block_str += '{:<20}'.format(self.coutfm) + '\n'
+        else:
+            block_str += '\n'
+        block_str += '{:<5}'.format(self.moutvar)
+        block_str += self.rcs_to_file(update_records=update_records)
+
+        if self.end_with_blank_line:
+            block_str += '\n'
+
+        if fname is not None:
+            f = open(fname, 'w')
+            f.write(block_str)
+            f.close()
+
+        return block_str
 
 
-class OutputRequests(TOUGHRecordCollection):
+class OutputRequest(TOUGHRecordCollection):
 
-    def __init__(self, output_requests, ):
-
-        super().__init__(records=output_requests)
-
-
-class OutputRequest(TOUGHRecord):
-
-    def __init__(self, coutln, id1=None, id2=None):
-
+    def __init__(self, coutln, idx1=None, idx2=None):
         super().__init__()
-        self.append([('coutln', coutln, '{:>20}'), ('id1', id1, '{:>5}'), ('id2', id2, '{:>5}')])
+        self.names = ['coutln', 'idx1', 'idx2']
+        args = [coutln]
+        kwargs = {}
+        kwargs.update({'idx1': idx1})
+        kwargs.update({'idx2': idx2})
+
+        self.update_records(*args, **kwargs)
+
+    def update_records(self, *args, **kwargs):
+
+        if not args and not kwargs:
+            kwargs = {}
+            args = [getattr(self, self.names[0])]
+            args = tuple(args)
+            if type(self).__name__ == 'OutputRequest':
+                kwargs.update({'idx1': getattr(self, 'idx1')})
+                kwargs.update({'idx2': getattr(self, 'idx2')})
+
+        self.records = []
+
+        record = TOUGHRecord()
+        record.append([(self.names[0], args[0], '{:<20}'),
+                       (self.names[1], kwargs[self.names[1]], '{:>5}'),
+                       (self.names[2], kwargs[self.names[2]], '{:>5}')])
+        self.append(record)
+
+        return None
+
+    @classmethod
+    def empty(cls):
+        return OutputRequest('NOOUT', 0, 0)
+
+    @classmethod
+    def from_file(cls, data_record):
+
+        block, _ = super().from_file(data_record[0])
+        return block, data_record[1:]
 
 
 class Param(TOUGHSimpleBlock):
@@ -1378,7 +1467,7 @@ class Selec(TOUGHSimpleBlock):
             self.trc_from_args(ie, fe)
 
     @classmethod
-    def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False):
+    def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
         return super().from_file(fn, trc=SelecCollection, names=['ie', 'fe'])
 
 
@@ -1572,7 +1661,7 @@ class Diffu(TOUGHSimpleBlock):
             self.trc_from_args(diffu_collection[0].fddiag)
 
     @classmethod
-    def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False):
+    def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
         return super().from_file(fn, trc=DiffuCollection, names=['fddiag'])
 
 
@@ -1638,13 +1727,13 @@ class Incon(TOUGHBlock):
         else:
             return block
 
-    @classmethod
-    def find_lines(cls, fn, end_with_blank_line=False, return_indices=False):
-        # This method reads in all records from a TOUGH Block and pulls in all text lines need to generate
-        # a TOUGHBlock object.
-        f = open(fn, 'r')
-        lines_list = f.readlines()
-        return cls.find_lines_from_list(lines_list, end_with_blank_line, return_indices)
+    # @classmethod
+    # def find_lines(cls, fn, end_with_blank_line=False, return_indices=False):
+    #     # This method reads in all records from a TOUGH Block and pulls in all text lines need to generate
+    #     # a TOUGHBlock object.
+    #     f = open(fn, 'r')
+    #     lines_list = f.readlines()
+    #     return cls.find_lines_from_list(lines_list, end_with_blank_line, return_indices)
 
     @classmethod
     def find_lines_from_list(cls, lines_list, end_with_blank_line=False, return_indices=False):
@@ -1699,14 +1788,11 @@ class Incon(TOUGHBlock):
             # Parse lines for data for each record collection. Return a record collection object and the remaining
             # lines to be read.
             # num_lines = 2 + int(extra_record)
-            # print(lines[:num_lines])
-            # exit()
             rc, _ = InconCollection.from_file(lines[num_lines*i_inc:num_lines*(i_inc+1)], extra_record=extra_record)
             # lines = lines[num_lines:]
             # if len(lines) % 1000 == 0:
-                # print(str(len(lines)) + ' lines left.')
-            if i_inc % 10000 == 0:
-                print('On number ' + str(i_inc) + ' of ' + str(num_incons))
+            # if i_inc % 10000 == 0:
+            #     print('On number ' + str(i_inc) + ' of ' + str(num_incons))
             record_collections.append(rc)
 
         return cls(record_collections)
@@ -1738,24 +1824,24 @@ class InconCollection(TOUGHRecordCollection):
         self.names = [['element', 'nseq', 'nadd', 'porx'],
                       ['x']]
         args = [element, x]
-        setattr(self,'x', x)
+        setattr(self, 'x', x)
         kwargs = {}
         kwargs.update({'nseq': nseq})
         kwargs.update({'nadd': nadd})
         kwargs.update({'porx': porx})
 
-        self.update_records(*args,**kwargs)
+        self.update_records(*args, **kwargs)
 
     def update_records(self, *args, **kwargs):
 
         if not args and not kwargs:
             kwargs = {}
-            args = [getattr(self,self.names[0][0]), getattr(self,'x')]
+            args = [getattr(self, self.names[0][0]), getattr(self, 'x')]
             args = tuple(args)
             if type(self).__name__ == 'InconCollection':
-                kwargs.update({'nseq':getattr(self, 'nseq')})
-                kwargs.update({'nadd':getattr(self, 'nadd')})
-                kwargs.update({'porx':getattr(self, 'porx')})
+                kwargs.update({'nseq': getattr(self, 'nseq')})
+                kwargs.update({'nadd': getattr(self, 'nadd')})
+                kwargs.update({'porx': getattr(self, 'porx')})
 
         self.records = []
 
@@ -1826,14 +1912,15 @@ if __name__ == '__main__':
 
     # base_dir = os.path.join(os.pardir, 'test_data')
     base_dir = os.path.join(up(up(up(os.getcwd()))), 'output')
-    fname = os.path.join(base_dir, 'flow_chk.inp')
-    fname_gnr = os.path.join(base_dir, 'GENER_tst')
-    gener = Gener.from_file(fname_gnr)
+    fname = os.path.join(base_dir, 'flow.inp')
+    fname_chk = os.path.join(base_dir, 'flow.chk')
+    # fname_gnr = os.path.join(base_dir, 'GENER_tst')
+    # gener = Gener.from_file(fname_gnr)
     # param = Param.from_file(fname)
-    exit()
     # rocks, i_lines = Momop.from_file(fname, return_line_indices=True)
     tough_input = TOUGHInput.from_file(fname)
     print(tough_input.keyword_list)
+    tough_input.to_file(fname_chk)
     exit()
     fname_out = os.path.join(base_dir, 'INFILE_chk')
 
