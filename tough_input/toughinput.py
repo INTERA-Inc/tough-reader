@@ -36,14 +36,57 @@ class TOUGHInput:
             self.blocks = []
         else:
             self.blocks = blocks
+        self.name2idx = dict()
+        self.update_blocks()
+
+    def update_blocks(self):
+        for idx, kw in enumerate(self.keyword_list):
+            self.name2idx[kw] = idx
+        return None
 
     def append(self, block):
         self.blocks.append(block)
+        self.update_blocks()
+        return None
 
+    def replace_block(self, block_label, block):
+        if type(block_label) == str:
+            idx = self.name2idx[block_label]
+        else:
+            idx = block_label
+        self.blocks[idx] = block
+        return None
+
+    def insert(self, item, block):
+        self.blocks.insert(item, block)
+        self.update_blocks()
+        return None
+
+    def insert_before(self, block_label, block):
+        idx = self.name2idx[block_label]
+        self.insert(idx, block)
+        return None
+
+    def insert_after(self, block_label, block):
+        idx = self.name2idx[block_label] + 1
+        self.insert(idx, block)
+        return None
+
+    def remove(self, block_label):
+        if type(block_label) == str:
+            idx = self.name2idx[block_label]
+        else:
+            idx = block_label
+        del self.blocks[idx]
+        self.update_blocks()
         return None
 
     def __getitem__(self, item):
-        return self.blocks[item]
+        if type(item) == str:
+            idx = self.name2idx[item]
+        else:
+            idx = item
+        return self.blocks[idx]
 
     def to_file(self, fn):
         f = open(fn, 'w')
@@ -103,7 +146,6 @@ class TOUGHInput:
                             title = [title, line.strip('\n')]
                     elif type(title) is list:
                         title.append(line.strip('\n'))
-                    print(title)
                 f_data = f_data[1:]
 
         return cls(title, blocks=blocks)
@@ -1211,7 +1253,7 @@ class Outpu(TOUGHBlock):
         block_str = ''
         block_str += self.keyword + '----1----*----2----*----3----*----4----*----5----*----6----*----7----*----8'
         if self.coutfm is not None:
-            block_str += '{:<20}'.format(self.coutfm) + '\n'
+            block_str += '\n' + '{:<20}'.format(self.coutfm) + '\n'
         else:
             block_str += '\n'
         block_str += '{:<5}'.format(self.moutvar)
@@ -1461,7 +1503,7 @@ class Selec(TOUGHSimpleBlock):
 
     def __init__(self, selec_collection=None, ie=None, fe=None):
         super().__init__(record_collections=selec_collection, trc=SelecCollection)
-        self.names = ['ie','fe']
+        self.names = ['ie', 'fe']
         if selec_collection is None:
             self.fill_attributes(ie=ie, fe=fe)
             self.trc_from_args(ie, fe)
@@ -1919,7 +1961,10 @@ if __name__ == '__main__':
     # param = Param.from_file(fname)
     # rocks, i_lines = Momop.from_file(fname, return_line_indices=True)
     tough_input = TOUGHInput.from_file(fname)
-    print(tough_input.keyword_list)
+    param = tough_input['PARAM']
+    param.timax = 10.0*365.25*24.0*3600.0
+    param.dep.insert(1, 10.25)
+    tough_input.replace_block('PARAM', param)
     tough_input.to_file(fname_chk)
     exit()
     fname_out = os.path.join(base_dir, 'INFILE_chk')
