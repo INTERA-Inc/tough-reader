@@ -736,21 +736,25 @@ class Rocks(TOUGHBlock):
     def block_from_lines(cls, lines, trc=None):
         return super().block_from_lines(lines, trc=Rock)
 
+    def __len__(self):
+        return len(self.record_collections)
+
 
 class Rock(TOUGHRecordCollection):
     """ represents a term in the ROCKS block """
 
     def __init__(self, mat, drok, por, per, cwet, spht,
-                 com=None, expan=None, cdry=None, tortx=None, gk=None, xkd3=None, xkd4=None,
+                 com=None, expan=None, cdry=None, tortx=None, gk=None, xkd3=None, xkd4=None, alpha_d=None,
                  irp=None, rp=None, icp=None, cp=None):
 
         super().__init__()
         self.names = [['mat', 'nad', 'drok', 'por', None, None, None, 'cwet', 'spht'],
-                      ['com', 'expan', 'cdry', 'tortx', 'gk', 'xkd3', 'xkd4'],
+                      ['com', 'expan', 'cdry', 'tortx', 'gk', 'xkd3', 'xkd4', None, None, None],
                       ['irp', 'rp', 'icp', 'cp']]
         args = (mat, drok, por, per, cwet, spht)
-        kwargs = {'com':com, 'expan':expan, 'cdry':cdry, 'tortx': tortx, 'gk':gk, 'xkd3':xkd3, 'xkd4':xkd4,
-                  'irp':irp, 'rp':rp, 'icp':icp, 'cp':cp}
+        kwargs = {'com': com, 'expan': expan, 'cdry': cdry, 'tortx': tortx, 'gk': gk,
+                              'xkd3': xkd3, 'xkd4': xkd4, 'alpha_d': alpha_d,
+                  'irp': irp, 'rp': rp, 'icp': icp, 'cp': cp}
         self.update_records(*args, **kwargs)
 
     @classmethod
@@ -787,10 +791,10 @@ class Rock(TOUGHRecordCollection):
 
         args, kwargs = super().update_records(*args, **kwargs)
 
-        if all(list(kwargs.values())[7:]):
+        if all(list(kwargs.values())[8:]):
             # RP and CAP functions are provided for this rock type
             nad = 2
-        elif any(list(kwargs.values())[:7]):
+        elif any(list(kwargs.values())[:8]):
             # Only one additional record is required
             nad = 1
         else:
@@ -813,24 +817,32 @@ class Rock(TOUGHRecordCollection):
             self.add_special_records(**kwargs)
         else:
             # Fill in None values for all remaining attributes
-            names = ['com', 'expan', 'cdry', 'tortx', 'gk', 'xkd3', 'xkd4', 'irp', 'rp', 'icp', 'cp']
+            names = ['com', 'expan', 'cdry', 'tortx', 'gk', 'xkd3', 'xkd4', 'alpha_d', 'irp', 'rp', 'icp', 'cp']
             for name, value in zip(names, list(kwargs.values())):
                 setattr(self, name, value)
 
         return None
 
-    def add_special_records(self, com, expan, cdry, tortx, gk, xkd3, xkd4, irp=None, rp=None, icp=None, cp=None):
+    def add_special_records(self, com, expan, cdry, tortx, gk, xkd3, xkd4, alpha_d,
+                            irp=None, rp=None, icp=None, cp=None):
 
         record = TOUGHRecord()
         data_fmt = '{:>10.4E}'
+        if alpha_d is None:
+            alpha_d = 3*[None]
         record.append([('com', com, data_fmt),
                        ('expan', expan, data_fmt),
                        ('cdry', cdry, data_fmt),
                        ('tortx', tortx, data_fmt),
                        ('gk', gk, data_fmt),
                        ('xkd3', xkd3, data_fmt),
-                       ('xkd4', xkd4, data_fmt)])
+                       ('xkd4', xkd4, data_fmt),
+                       (None, None, data_fmt),
+                       (None, alpha_d[0], data_fmt),
+                       (None, alpha_d[1], data_fmt),
+                       (None, alpha_d[2], data_fmt)])
         self.append(record)
+        setattr(self, 'alpha_d', alpha_d)
 
         nad = getattr(self, 'nad')
         if nad >= 2:
@@ -845,7 +857,9 @@ class Rock(TOUGHRecordCollection):
         else:
             # Fill in None values for irp, rp, icp, and cp
             for name in self.names[1]:
-                setattr(self, name, None)
+                # print(name)
+                if name is not None:
+                    setattr(self, name, None)
 
         return None
 
@@ -857,6 +871,14 @@ class Rock(TOUGHRecordCollection):
         # Insert per entry (which is not in self.names) into args (which contains per)
         args.insert(3, getattr(self, 'per'))
         args = tuple(args)
+        # Insert alpha_d entry (which is not in self.names) into kwargs (which contains alpha_d)
+        keys = list(kwargs.keys())
+        vals = list(kwargs.values())
+        keys.insert(7, 'alpha_d')
+        vals.insert(7, getattr(self, 'alpha_d'))
+        kwargs = {}
+        for key, val in zip(keys, vals):
+            kwargs[key] = val
 
         return args, kwargs
 
@@ -1530,7 +1552,8 @@ class SelecCollection(TOUGHRecordCollection):
             setattr(self, 'fe', args[1])
 
         self.add_tables(['ie'], 16, '{:>5}')
-        self.add_tables(['fe'], 8, '{:>10.4E}')
+        if getattr(self, 'fe') is not None:
+            self.add_tables(['fe'], 8, '{:>10.4E}')
 
         return None
 
@@ -1954,19 +1977,45 @@ if __name__ == '__main__':
 
     # base_dir = os.path.join(os.pardir, 'test_data')
     base_dir = os.path.join(up(up(up(os.getcwd()))), 'output')
+
+    # Get file paths to old input file (fname) and file to be updated (fname_chk):
     fname = os.path.join(base_dir, 'flow.inp')
     fname_chk = os.path.join(base_dir, 'flow.chk')
-    # fname_gnr = os.path.join(base_dir, 'GENER_tst')
-    # gener = Gener.from_file(fname_gnr)
-    # param = Param.from_file(fname)
-    # rocks, i_lines = Momop.from_file(fname, return_line_indices=True)
+
+    # Pull in data from old input file (based on EOS3):
     tough_input = TOUGHInput.from_file(fname)
-    param = tough_input['PARAM']
-    param.timax = 10.0*365.25*24.0*3600.0
-    param.dep.insert(1, 10.25)
-    tough_input.replace_block('PARAM', param)
+
+    # Update ROCKS block with transmissivities (alpha_d):
+    alpha_d = (0.3048*100.0*np.array([1.0, 0.1, 0.01])).tolist()
+    num_rocks = len(tough_input['ROCKS'])
+    for i_rck in np.arange(num_rocks):
+        tough_input['ROCKS'][i_rck].alpha_d = alpha_d
+
+    # Update PARAM block with new TIMAX and DEP (including X2 for salt mass fraction):
+    tough_input['PARAM'].timax = 10.0*365.25*24.0*3600.0
+    tough_input['PARAM'].dep.insert(1, 0.0)
+
+    # Update MULTI block with new NK, NEQ, and NPH:
+    tough_input.replace_block('MULTI', Multi(nk=3, neq=3, nph=3))
+
+    # Add SELEC block (and place after MOMOP):
+    ie = 16*[None]
+    ie[0:0] = 1
+    ie[10:10] = 0
+    ie[13:13] = 3
+    ie[15:15] = 1
+    fe = [0.0, None]
+    tough_input.insert_after('MOMOP', Selec(ie=ie, fe=fe))
+
+    # Add TIMES block (and place after PARAM):
+    tis = (365.25*24.0*3600.0*np.arange(1, 11)).tolist()
+    tough_input.insert_after('PARAM', Times(tis=tis))
+
+    # Write updated inputs to new file:
     tough_input.to_file(fname_chk)
     exit()
+
+
     fname_out = os.path.join(base_dir, 'INFILE_chk')
 
     incon = Incon.from_file(fname, extra_record=True)
