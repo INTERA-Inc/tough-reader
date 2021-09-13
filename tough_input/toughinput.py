@@ -1811,7 +1811,7 @@ class Incon(TOUGHBlock):
         ind_lines = []
         read_footer = False
         read_lines = False
-        for i_line, line in lines_list:
+        for i_line, line in enumerate(lines_list):
             if line[:len(keyword)] == keyword:
                 read_lines = True
                 ind_lines.append(i_line)
