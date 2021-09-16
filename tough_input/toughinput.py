@@ -237,7 +237,7 @@ class TOUGHBlock:
 
     @classmethod
     def block_from_lines(cls, lines, trc=None):
-
+        
         record_collections = cls.rcs_from_lines(lines, trc=trc)
         return cls(record_collections)
 
@@ -435,7 +435,7 @@ class TOUGHRecordCollection:
 
     @classmethod
     def from_file(cls, data_record):
-
+      
         rc = cls.empty()
         reject_list = rc.records[0].update_from_file(data_record)
         for entry in rc.records[0].entries:
@@ -1163,7 +1163,9 @@ class Times(TOUGHSimpleBlock):
     @classmethod
     def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
         return super().from_file(fn, trc=TimesCollection, names=['iti', 'ite', 'delaf', 'tinter', 'tis'])
-
+    @classmethod
+    def block_from_lines(cls, lines, trc=None):
+        return super().block_from_lines(lines, names=['iti', 'ite', 'delaf', 'tinter', 'tis'],trc=TimesCollection)
 
 class TimesCollection(TOUGHRecordCollection):
 
