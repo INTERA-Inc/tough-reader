@@ -726,6 +726,8 @@ class Rocks(TOUGHBlock):
 
     def __init__(self, rocks=None):
         super().__init__(record_collections=rocks, trc=Rock, end_with_blank_line=True)
+        self.name2idx = {}
+        self.update_rocks()
 
     @classmethod
     def from_file(cls, fn, trc=None, end_with_blank_line=False, return_line_indices=False):
@@ -738,6 +740,25 @@ class Rocks(TOUGHBlock):
 
     def __len__(self):
         return len(self.record_collections)
+
+    def __getitem__(self, item):
+        if type(item) == str:
+            return self.record_collections[self.name2idx[item]]
+        else:
+            return self.record_collections[item]
+
+    def update_rocks(self):
+        self.name2idx = {}
+        for i_rock, rock in enumerate(self.rocks_list()):
+            self.name2idx[rock] = i_rock
+        return None
+
+    def rocks_list(self):
+        rocks_list = []
+        if self.record_collections is not None:
+            for rock in self.record_collections:
+                rocks_list.append(rock.mat.strip())
+        return rocks_list
 
 
 class Rock(TOUGHRecordCollection):
