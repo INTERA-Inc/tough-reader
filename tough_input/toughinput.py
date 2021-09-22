@@ -747,6 +747,13 @@ class Rocks(TOUGHBlock):
         else:
             return self.record_collections[item]
 
+    def __setitem__(self, item, data):
+        if self.record_collections is not None:
+            if type(item) == str:
+                self.record_collections[self.name2idx[item]] = data
+            else:
+                self.record_collections[item] = data
+
     def update_rocks(self):
         self.name2idx = {}
         for i_rock, rock in enumerate(self.rocks_list()):
