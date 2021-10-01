@@ -1752,8 +1752,8 @@ class Diffu(TOUGHSimpleBlock):
 
         super().__init__(record_collections=diffu_collection, trc=DiffuCollection)
         if diffu_collection:
-            self.fill_attributes(fddiag=diffu_collection[0].fddiag)
-            self.trc_from_args(diffu_collection[0].fddiag)
+            self.fill_attributes(fddiag=diffu_collection.fddiag)
+            self.trc_from_args(diffu_collection.fddiag)
 
     @classmethod
     def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
@@ -2026,14 +2026,17 @@ if __name__ == '__main__':
     tough_input['PARAM'].dep.insert(1, 0.0)
 
     # Update MULTI block with new NK, NEQ, and NPH:
-    tough_input.replace_block('MULTI', Multi(nk=3, neq=3, nph=3))
+    tough_input.replace_block('MULTI', Multi(nk=3, neq=3, nph=3, nb=8))
+
+    diffus = DiffuCollection(fddiag=[[1.0e-20, 1.0e-20], [1.0e-20, 1.0e-20], [1.0e-20, 1.0e-20]])
+    tough_input.insert_after('MULTI', Diffu(diffu_collection=diffus))
 
     # Add SELEC block (and place after MOMOP):
     ie = 16*[None]
-    ie[0:0] = 1
-    ie[10:10] = 0
-    ie[13:13] = 3
-    ie[15:15] = 1
+    ie[0] = 1
+    ie[10] = 0
+    ie[13] = 3
+    ie[15] = 1
     fe = [0.0, None]
     tough_input.insert_after('MOMOP', Selec(ie=ie, fe=fe))
 
