@@ -551,11 +551,15 @@ class OutputFile():
         df.set_index(df['ELEM.'], inplace=True)
         return df
 
-    def conn_dataframe_for_step(self, n):
+    def conn_dataframe_for_step(self, n, append_diff=False):
         """ return the n-th dataframe of all the connection data """
 
         df = pd.DataFrame.from_records(self.get_conn(n),
                                        columns=self._conn_data_cols)
+        if append_diff:
+            df_diff = self.dataframe_for_step(n)
+            for dc in self._diff_data_cols[2:]:
+                df[dc] = df_diff[dc]
         df.set_index(df['INDEX'], inplace=True)
         return df
 
