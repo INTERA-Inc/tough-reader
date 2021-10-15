@@ -24,6 +24,8 @@ def iter_file(fname):
             yield line.strip()
 
 HDR_TYPE_MAP = {
+        'ALL  -1-':float,
+        'ALL  -2-':float,
         'DELTEX':float,
         "DEN_G":float,
         "DG":float,
@@ -37,8 +39,8 @@ HDR_TYPE_MAP = {
         "ELEM2":str,
         "ELEMENT": str,
         "ENTHALPY":float,
-        "FF(GAS)":float,
-        "FF(LIQ)":float,
+        #"FF(GAS)":float,
+        #"FF(LIQ)":float,
         "FHEAT":float,
         "FLO(BRINE)":float,
         "FLOF":float,
@@ -65,7 +67,7 @@ HDR_TYPE_MAP = {
         "PER.MOD":float,
         "PCAP":float,
         "PCAP_GL":float,
-        "P(WB)":float,
+        #"P(WB)":float,
         "POR":float,
         "POROSITY":float,
         "PRES":float,
@@ -101,6 +103,8 @@ HDR_TYPE_MAP = {
         "XRN2L":float,
         "XWAT(1)":float,
         "XWAT(2)":float,
+        "XWATER(1)":float,
+        "XWATER(2)":float,
         "X_AIR_L":float,
         "X_BRINE_G":float,
         "X_BRINE_L":float,
@@ -181,6 +185,7 @@ class OutputFile():
         self._data_cols = None
         self._conn_data_cols = None
         self._gener_data_cols = None
+        self._diff_data_cols = None
 
         with open(self.fname, 'r') as f:
             self._iter_file(f)
@@ -188,6 +193,7 @@ class OutputFile():
     def _iter_file(self, f):
         """ iterate the file line by line and populate hooks to items """
 
+        continue_diff = False
         for ix, line in enumerate(f):
             self.offsets.append(len(line))
             if "TOTAL TIME" in line:
@@ -199,7 +205,7 @@ class OutputFile():
                 # self._data_cols.append('MATERIAL')  # LC 05/12/2020
             if "ELEM1" in line and self._conn_data_cols is None:
                 self._conn_data_cols = line.strip().split()
-            if "ELEMENT SOURCE INDEX      GENERATION RATE" in line and self._gener_data_cols is None:
+            if "GENERATION RATE" in line and self._gener_data_cols is None:
                 gener_col_names = line.strip().split()
                 for count, gener_col in enumerate(gener_col_names):
                     if gener_col == 'GENERATION':
@@ -210,7 +216,16 @@ class OutputFile():
                                    gener_col_names[count + 2:])
                 gener_col_names = gener_col_names[:5]
                 self._gener_data_cols = gener_col_names
-
+            if "ELEM1 ELEM2  PHASE COMP  PHASE COMP" in line and self._diff_data_cols is None:
+                # Pull in first two entries (ELEM1, ELEM2) for first two column headers and continue to next line
+                self._diff_data_cols = line.strip().split()[:2]
+                continue_diff = True
+                continue
+            if continue_diff:
+                # Pull in last two entries ('ALL  -1-' and 'ALL   -2-') for last two column headers
+                l_data = line.strip()
+                self._diff_data_cols += [l_data[:9].strip(), l_data[10:].strip()]
+                continue_diff = False
 
         # print(self.hdr_locs)
 
@@ -282,7 +297,7 @@ class OutputFile():
                     break
                 if "THE TIME IS" in l:
                     break
-                if l.strip()=="":   # MH 17/06/2020
+                if l.strip() == "":   # MH 17/06/2020
                     continue
                 if "ELEM." in l:
                     continue
@@ -293,12 +308,12 @@ class OutputFile():
                 
 #                out = [l[:5]] + l[5:-5].split() + [l[-5:].strip()]
                 # out = [l[1:6]] + l[6:-5].split() + [l[-5:].strip()] # LC 12/05/2020
-                iw = self.iw # Index width (# of digits provided in output for INDEX column)
-                ew = self.ew # Element width (# of characters contained in each element)
+                iw = self.iw  # Index width (# of digits provided in output for INDEX column)
+                ew = self.ew  # Element width (# of characters contained in each element)
                 col1 = l.find('.') - l[l.find('.'):0:-1].find(' ')
-                out = ([l[:col1].strip()[:-iw].strip()[-ew:].strip()] + # Find ELEM (last 5 nonempty digits before index)
-                       [l[:col1].strip()[-iw:].strip()] +               # Find INDEX (last digits of stripped substring)
-                       l[col1:].split())                                # Collect rest of floating-point data with split()
+                out = ([l[:col1].strip()[:-iw].strip()[-ew:].strip()] +  # Find ELEM (last 5 nonempty digits before index)
+                       [l[:col1].strip()[-iw:].strip()] +                # Find INDEX (last digits of stripped substring)
+                       l[col1:].split())                                 # Collect rest of floating-point data with split()
                 # out = [l[:7].strip()] + l[7:].split()  # MH 17/06/2020
                 # col1 = l.find('.') - l[l.find('.'):0:-1].find(' ')    # Find last space before first floating point val
                 # col2 = col1 - l[:col1][::-1].find(' ') - 1
@@ -407,6 +422,54 @@ class OutputFile():
                         out[ix] = None
                 yield out
 
+    def get_diff(self, n):
+        """ get the nth diffusive flow listing as a generator """
+        if len(self.hdr_locs) == 0:
+            self.read_file()
+        with open(self.fname, 'r') as f:
+            # f.seek(self.position_for_line(self.hdr_locs[n])+self.hdr_locs[n])
+            f.seek(self.position_for_line(self.hdr_locs[n]))
+            while True:
+                dummy = f.readline()
+                if "DIFFUSION" in dummy:
+                    break
+            diff_col_names = self._diff_data_cols
+            dummy = f.readline()
+            while True:
+                # Only ignore the 'Carriage return' strings at the beginning and end of line
+#                l = f.readline().strip()
+                l = f.readline().strip('\n') # LC 12/05/2020
+                if "@" in l:
+                    # Reached the end of the gener outputs:
+                    break
+                if l.strip()=="":  # MH 17/06/2020
+                    # Intermediate header information reported in output file:
+                    continue
+                if "ELEM1" in l:
+                    # Intermediate header information (variable name) in output file:
+                    continue
+                if "ALL" in l:
+                    # Intermediate header information (component header) in output file:
+                    continue
+                l_data = l.strip()
+                out = [l_data[:self.ew].strip(), l_data[self.ew+1:2*self.ew+1].strip()] + l_data[2*self.ew+2:].split()
+
+                # vals = zip(diff_col_names, out)
+                """
+                for nm, val in vals:
+                    try:
+                        i = HDR_TYPE_MAP.get(nm, float)(val)
+                    except Exception as e:
+                        print(nm, val)
+                        raise e
+                """
+                for ix, name in enumerate(diff_col_names):
+                    try:
+                        out[ix] = HDR_TYPE_MAP.get(name, float)(out[ix])
+                    except ValueError:
+                        out[ix] = None
+                yield out
+
     def get_gener(self, n):
         """ get the nth source/sink listing as a generator """
         if len(self.hdr_locs) == 0:
@@ -423,21 +486,24 @@ class OutputFile():
                             break
                     # Combine "GENERATION RATE" into a single entry in col names
                     gener_col_names = (gener_col_names[:count] +
-                                       [gener_col_names[count] + ' ' + gener_col_names[count+1]] +
-                                       gener_col_names[count+2:])
-                    gener_col_names = gener_col_names[:5]
-                    self._gener_data_cols = gener_col_names
+                                       [gener_col_names[count] + ' ' + gener_col_names[count + 1]] +
+                                       gener_col_names[count + 2:])
+
+                    self._gener_data_cols = []
+                    for gcn in gener_col_names:
+                        if gcn in HDR_TYPE_MAP.keys():
+                            self._gener_data_cols.append(gcn)
                     break
 
             dummy = f.readline()
             while True:
                 # Only ignore the 'Carriage return' strings at the beginning and end of line
-#                l = f.readline().strip()
-                l = f.readline().strip('\n') # LC 12/05/2020
+                #                l = f.readline().strip()
+                l = f.readline().strip('\n')  # LC 12/05/2020
                 if "@" in l:
                     # Reached the end of the gener outputs:
                     break
-                if l.strip()=="":  # MH 17/06/2020
+                if l.strip() == "":  # MH 17/06/2020
                     # Intermediate header information reported in output file:
                     continue
                 if "GENERATION RATE" in l:
@@ -449,13 +515,15 @@ class OutputFile():
                 # Force first 8 characters as first element name,
                 # second 5 characters as second element name,
                 # and split remaining portion of line.
-#                out = [l[:5]] + [l[8:13]] + l[13:].split()
-                out = [l[2:7]] + [l[10:16]] + l[16:].split() # LC 12/05/2020
-                if len(out) > 5:
-                    # This is a heat source/sink
-                    continue
+                #                out = [l[:5]] + [l[8:13]] + l[13:].split()
+                l_data = l.strip()
+                out = [l_data[:self.ew], l_data[self.ew+1:].strip()[:5]] + l_data[self.ew+1:].strip()[6:].split()
+                # out = [l[2:7]] + [l[10:16]] + l[16:].split()  # LC 12/05/2020
+                # if len(out) > 5:
+                #     # This is a heat source/sink
+                #     continue
 
-                vals = zip(gener_col_names, out)
+                # vals = zip(gener_col_names, out)
                 """
                 for nm, val in vals:
                     try:
@@ -464,7 +532,8 @@ class OutputFile():
                         print(nm, val)
                         raise e
                 """
-                for ix, name in enumerate(gener_col_names):
+
+                for ix, name in enumerate(self._gener_data_cols):
                     try:
                         out[ix] = HDR_TYPE_MAP.get(name, float)(out[ix])
                     except ValueError:
@@ -485,15 +554,22 @@ class OutputFile():
     def conn_dataframe_for_step(self, n):
         """ return the n-th dataframe of all the connection data """
 
-        df = pd.DataFrame.from_records(self.get_conn(n), columns=self._conn_data_cols)
+        df = pd.DataFrame.from_records(self.get_conn(n),
+                                       columns=self._conn_data_cols)
         df.set_index(df['INDEX'], inplace=True)
         return df
 
     def gener_dataframe_for_step(self, n):
         # return the n-th dataframe of all the source/sink data
-        df = pd.DataFrame.from_records(self.get_gener(n),
-                                       columns = self._gener_data_cols)
+        pd.DataFrame.from_records(self.get_gener(n), columns=self._gener_data_cols)
+        df = pd.DataFrame.from_records(self.get_gener(n), columns=self._gener_data_cols)
         df.set_index(df['ELEMENT'], inplace=True)
+        return df
+
+    def diff_dataframe_for_step(self, n):
+        # return the n-th dataframe of all diffusive flow data
+        df = pd.DataFrame.from_records(self.get_diff(n),
+                                       columns=self._diff_data_cols)
         return df
 
     @property 
@@ -585,10 +661,9 @@ def sample_file(fname):
                 break
 
 if __name__ == "__main__":
-    pdir = os.path.join(".", "data_eos5_simu") # LC 12/05/2020
-    fname = os.path.join(pdir, "SMA_ZNO_2Dhr_gv1_pv1_gas.out")  # LC 12/05/2020
-    # fname = os.path.join(pdir, "mikey.out")
-    pckfile = os.path.join(pdir, "temp_output.pck") # LC 12/05/2020
+    pdir = os.path.join('..', 'test')
+    fname = os.path.join(pdir, "test.out")  # LC 12/05/2020
+    pckfile = os.path.join(pdir, "test_output.pck") # LC 12/05/2020
     
 #    con = OutputFile(fname)
 #    sss=con.dataframe_for_step(0)
@@ -606,9 +681,10 @@ if __name__ == "__main__":
     # print(i_unique)
     # print(len(con.times))
     # print(len(np.unique(con.times)))
-    ind = 196# 59
+    ind = 1
     # print(con.times[ind]/(365.25*24.0*3600))
     # print(t_unique[ind]/(365.25*24.0*3600))
-    print(con.dataframe_for_step(ind)['ELEM.'])
-    print(con.conn_dataframe_for_step(ind)['ELEM1'])
-    print(con.gener_dataframe_for_step(ind)['ELEMENT'])
+    # print(con.dataframe_for_step(ind)['ELEM.'])
+    # print(con.conn_dataframe_for_step(ind)['ELEM1'])
+    # print(con.diff_dataframe_for_step(ind)['ELEM1'])
+    # print(con.gener_dataframe_for_step(ind)['ELEMENT'])

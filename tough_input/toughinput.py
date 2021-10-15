@@ -1808,7 +1808,6 @@ class Incon(TOUGHBlock):
 
     @classmethod
     def from_file(cls, fn, trc=None, end_with_blank_line=True, extra_record=False, return_line_indices=False):
-        print('Finding lines in file:')
         if return_line_indices:
             lines, footers, ind_lines = cls.find_lines(fn, end_with_blank_line=end_with_blank_line, return_indices=True)
         else:
