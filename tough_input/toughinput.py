@@ -566,17 +566,22 @@ class TOUGHRecordCollection:
             dt = int
         else:
             dt = float
-        tab_data = np.empty(num_entries, dtype=dt)
+        if data_type is not None:
+            tab_data = np.empty(num_entries, dtype=dt)
+        else:
+            tab_data = [None]*num_entries
         remaining_terms = num_entries  # Track how many remaining entries must be read
         for i_line, line in enumerate(lines[:num_lines]):
             # Number of entries that will be read from this line
             terms_to_read = min(remaining_terms, entries_per_record)
             data_fmts = [(None, data_fmt, data_type)] * terms_to_read
             self.append_from_file(line, data_fmts)
+            if None in self[-1].get_data():
+                tab_data = np.array([None]*num_entries)
             tab_data[i_line * entries_per_record:i_line * entries_per_record + terms_to_read] = self[-1].get_data()
             remaining_terms -= terms_to_read  # Update the number of remaining entries to read
 
-        if any(np.isnan(tab_data)):
+        if (None not in tab_data) and (any(np.isnan(tab_data))):
             tab_data[np.isnan(tab_data)] = None
 
         return tab_data.tolist(), lines[num_lines:]
@@ -799,15 +804,17 @@ class Rock(TOUGHRecordCollection):
         if nad is not None and nad >= 1:
             num_records += 1
             names = getattr(rock, 'names')[1]
+            names.insert(7, None)
             data_fmt = []
             for name in names:
                 data_fmt.append((name, '{:>10.4E}', 'float'))
             rock.append(TOUGHRecord.from_file(data_record[1], data_fmt))
+            setattr(rock, 'alpha_d', [te.value for te in rock[-1][-3:]])
             if nad >= 2:
                 num_records += 2
                 rpcp, _ = RpCp.from_file(data_record[2:4])
-                setattr(rock, 'rp', getattr(rpcp,'rp'))
-                setattr(rock, 'cp', getattr(rpcp,'cp'))
+                setattr(rock, 'rp', getattr(rpcp, 'rp'))
+                setattr(rock, 'cp', getattr(rpcp, 'cp'))
                 rock.append(rpcp[0])
                 rock.append(rpcp[1])
 
@@ -885,7 +892,6 @@ class Rock(TOUGHRecordCollection):
         else:
             # Fill in None values for irp, rp, icp, and cp
             for name in self.names[1]:
-                # print(name)
                 if name is not None:
                     setattr(self, name, None)
 
@@ -997,9 +1003,6 @@ class CapPress(TOUGHRecord):
         self.append([('icp', icp, '{:>5}'), (None, None, '{:>5}')])
         for c in cp:
             self.append((None, c, '{:>10.4E}'))
-
-
-
 
 
 class Multi(TOUGHSimpleBlock):
@@ -1301,6 +1304,39 @@ class Outpu(TOUGHBlock):
         record_collections = cls.rcs_from_lines(lines, trc=OutputRequest)
         return cls(record_collections, coutfm=coutfm)
 
+    @classmethod
+    def find_lines_from_list(cls, lines_list, end_with_blank_line=False, return_indices=False):
+
+        keyword = cls.__name__[:5].upper()
+        lines = []
+        i_lines = []
+        read_lines = False
+        maxoutvar = None
+
+        for i_line, line in enumerate(lines_list):
+            if line[:len(keyword)] == keyword:
+                i_lines.append(i_line)
+                read_lines = True
+                continue
+            if read_lines:
+                if (line.strip() == 'CSV') or (line.strip() == 'PETRASIM') or (line.strip() == 'TECPLOT'):
+                    i_lines.append(i_line)
+                    lines.append(line)
+                    continue
+                if maxoutvar is None:
+                    maxoutvar = int(line)
+                    i_lines.append(i_line)
+                    lines.append(line)
+                    continue
+                lines += lines_list[i_line:i_line+maxoutvar]
+                i_lines += list(range(i_line, i_line+maxoutvar))
+                break
+
+        if return_indices:
+            return lines, i_lines
+        else:
+            return lines
+
     def to_file(self, fname=None, update_records=True, prepend_line=None):
         block_str = ''
         block_str += self.keyword + '----1----*----2----*----3----*----4----*----5----*----6----*----7----*----8'
@@ -1564,6 +1600,12 @@ class Selec(TOUGHSimpleBlock):
     def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
         return super().from_file(fn, trc=SelecCollection, names=['ie', 'fe'])
 
+    @classmethod
+    def block_from_lines(cls, lines, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
+        names = ['ie', 'fe']
+        return super().block_from_lines(lines, names=names, trc=SelecCollection,
+                                        return_line_indices=return_line_indices)
+
 
 class SelecCollection(TOUGHRecordCollection):
 
@@ -1594,7 +1636,7 @@ class SelecCollection(TOUGHRecordCollection):
     @classmethod
     def from_file(cls, data_record):
         selec_collection = SelecCollection.empty()
-        selec_collection.ie, _ = selec_collection.read_table([data_record[0]], None, 16, '{:>5}', data_type='int')
+        selec_collection.ie, _ = selec_collection.read_table([data_record[0]], 16, 16, '{:>5}', data_type='int')
         num_records = selec_collection.ie[0]
         if num_records is not None and num_records > 0:
             # Read in table of times values
@@ -1748,16 +1790,22 @@ class Sink(GenerTerm):
 
 class Diffu(TOUGHSimpleBlock):
 
-    def __init__(self, diffu_collection=None, fddiag=None):
+    def __init__(self, diffu_collection=None):
 
         super().__init__(record_collections=diffu_collection, trc=DiffuCollection)
-        if diffu_collection:
-            self.fill_attributes(fddiag=diffu_collection.fddiag)
-            self.trc_from_args(diffu_collection.fddiag)
+        # if diffu_collection:
+        #     self.fill_attributes(fddiag=diffu_collection.fddiag)
+        #     self.trc_from_args(diffu_collection.fddiag)
 
     @classmethod
     def from_file(cls, fn, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
         return super().from_file(fn, trc=DiffuCollection, names=['fddiag'])
+
+    @classmethod
+    def block_from_lines(cls, lines, names=None, trc=None, end_with_blank_line=False, return_line_indices=False):
+        names = ['fddiag']
+        return super().block_from_lines(lines, names=names, trc=DiffuCollection,
+                                        return_line_indices=return_line_indices)
 
 
 class DiffuCollection(TOUGHRecordCollection):
@@ -1783,7 +1831,7 @@ class DiffuCollection(TOUGHRecordCollection):
 
     @classmethod
     def empty(cls):
-        return DiffuCollection([[0.0,0.0]])
+        return DiffuCollection([[0.0, 0.0]])
 
     @classmethod
     def from_file(cls, data_record):
@@ -1792,7 +1840,8 @@ class DiffuCollection(TOUGHRecordCollection):
 
         for dr in data_record:
             fd, _ = diffu_collection.read_table([dr], None, 8, '{:>10.4E}')
-            diffu_collection.fddiag.append(fd.tolist())
+            diffu_collection.fddiag.append(fd)
+            # diffu_collection.fddiag.append(fd.tolist())
 
         return diffu_collection, []
 
@@ -2008,11 +2057,12 @@ if __name__ == '__main__':
     base_dir = os.path.join(up(up(up(os.getcwd()))), 'output')
 
     # Get file paths to old input file (fname) and file to be updated (fname_chk):
-    fname = os.path.join(base_dir, 'flow.inp')
+    fname = os.path.join(base_dir, 'flow_tr.inp')
     fname_chk = os.path.join(base_dir, 'flow.chk')
 
     # Pull in data from old input file (based on EOS3):
     tough_input = TOUGHInput.from_file(fname)
+    tough_input.to_file(fname_chk)
 
     # Update ROCKS block with transmissivities (alpha_d):
     alpha_d = (0.3048*100.0*np.array([1.0, 0.1, 0.01])).tolist()
@@ -2027,8 +2077,8 @@ if __name__ == '__main__':
     # Update MULTI block with new NK, NEQ, and NPH:
     tough_input.replace_block('MULTI', Multi(nk=3, neq=3, nph=3, nb=8))
 
-    diffus = DiffuCollection(fddiag=[[1.0e-20, 1.0e-20], [1.0e-20, 1.0e-20], [1.0e-20, 1.0e-20]])
-    tough_input.insert_after('MULTI', Diffu(diffu_collection=diffus))
+    diffus = DiffuCollection(fddiag=[[1.1e-20, 1.0e-20], [1.0e-20, 1.0e-20], [1.0e-20, 1.0e-20]])
+    tough_input.replace_block('DIFFU', Diffu(diffu_collection=diffus))
 
     # Add SELEC block (and place after MOMOP):
     ie = 16*[None]
@@ -2037,11 +2087,11 @@ if __name__ == '__main__':
     ie[13] = 3
     ie[15] = 1
     fe = [0.0, None]
-    tough_input.insert_after('MOMOP', Selec(ie=ie, fe=fe))
+    tough_input.replace_block('SELEC', Selec(ie=ie, fe=fe))
 
     # Add TIMES block (and place after PARAM):
     tis = (365.25*24.0*3600.0*np.arange(1, 11)).tolist()
-    tough_input.insert_after('PARAM', Times(tis=tis))
+    tough_input.replace_block('TIMES', Times(tis=tis))
 
     # Write updated inputs to new file:
     tough_input.to_file(fname_chk)
