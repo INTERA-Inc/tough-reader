@@ -131,7 +131,7 @@ class TOUGHInput:
                 reading_blocks = True
                 # Start filling in block info.
                 keyword = line[:5]
-                block_cls_str = keyword[0] + keyword[1:].lower()
+                block_cls_str = keyword[0] + keyword[1:].lower().strip()
                 lines, i_lines = globals()[block_cls_str].find_lines_from_list(f_data, return_indices=True)
                 block = globals()[block_cls_str].block_from_lines(lines)
                 blocks.append(block)
@@ -170,7 +170,7 @@ class TOUGHBlock:
     def get_eligible_keywords(cls):
         return ['MESHM', 'ROCKS', 'RCPAP', 'MULTI', 'START', 'PARAM', 'INDOM', 'INCON', 'SOLVR', 'FOFT ',
                 'COFT ', 'GOFT ', 'NOVER', 'DIFFU', 'SELEC', 'RPCAP', 'TIMES', 'ELEME', 'CONNE', 'GENER',
-                'MOMOP', 'REACT', 'OUTPU', 'ENDFI', 'ENDCY']
+                'MOMOP', 'REACT', 'OUTPU', 'ROFT ', 'ENDFI', 'ENDCY']
 
     @classmethod
     def from_file(cls, fn, trc=None, end_with_blank_line=False, return_line_indices=False):
@@ -204,6 +204,8 @@ class TOUGHBlock:
     def find_lines_from_list(cls, lines_list, end_with_blank_line=False, return_indices=False):
 
         keyword = cls.__name__[:5].upper()
+        if len(keyword) < 5:
+            keyword += (5-len(keyword))*' '
         eligible_keywords = cls.get_eligible_keywords()
         lines = []
         i_lines = []
@@ -520,7 +522,7 @@ class TOUGHRecordCollection:
         if not args and not kwargs:
             args = ()
             for name in self.names[0]:
-                if name is not None and hasattr(self,name):
+                if name is not None and hasattr(self, name):
                     args += (getattr(self, name), )
 
             kwargs = {}
@@ -933,6 +935,7 @@ class Rpcap(TOUGHBlock):
     def block_from_lines(cls, lines, trc=None):
         return super().block_from_lines(lines, trc=RpCp)
 
+
 def get_rpcp_list(data_record_snippet):
 
     # Create a list of RPCAP variables given snippet from input file
@@ -1072,7 +1075,7 @@ class Momop(TOUGHBlock):
             setattr(self, 'mop2', mop2_list + (27-len(mop2_list))*[None])
 
     @classmethod
-    def from_file(cls, fn, trc = None, end_with_blank_line=False, return_line_indices=False):
+    def from_file(cls, fn, trc=None, end_with_blank_line=False, return_line_indices=False):
         block = super().from_file(fn, Mop2, end_with_blank_line, return_line_indices)
         return block
 
@@ -2049,6 +2052,139 @@ class IndomCollection(InconCollection):
         return IndomCollection('NOMAT', [0.0])
 
 
+class Foft(TOUGHBlock):
+
+    def __init__(self, fofts=None):
+        super().__init__(record_collections=fofts, end_with_blank_line=True)
+        self.keyword += ' '
+
+    @classmethod
+    def from_file(cls, fn, trc=None, end_with_blank_line=True, extra_record=False, return_line_indices=False):
+        if return_line_indices:
+            lines, footers, ind_lines = cls.find_lines(fn, end_with_blank_line=end_with_blank_line, return_indices=True)
+        else:
+            ind_lines = None
+            lines, footers = cls.find_lines(fn, end_with_blank_line=end_with_blank_line, return_indices=False)
+
+        block = cls.block_from_lines(lines, trc=FoftCollection)
+        if return_line_indices:
+            return block, ind_lines
+        else:
+            return block
+
+    @classmethod
+    def block_from_lines(cls, lines, trc=None, extra_record=False):
+
+        return super().block_from_lines(lines, trc=FoftCollection)
+
+
+class FoftCollection(TOUGHRecordCollection):
+
+    def __init__(self, efoft, ifoft=None):
+        super().__init__()
+        self.names = ['efoft', 'ifoft']
+        args = [efoft]
+        setattr(self, 'efoft', efoft)
+        kwargs = {}
+        kwargs.update({'ifoft': ifoft})
+
+        self.update_records(*args, **kwargs)
+
+    def update_records(self, *args, **kwargs):
+
+        if not args and not kwargs:
+            kwargs = {}
+            args = [getattr(self, self.names[0])]
+            args = tuple(args)
+            if type(self).__name__ == 'FoftCollection':
+                kwargs.update({'ifoft': getattr(self, 'ifoft')})
+
+        self.records = []
+
+        record = TOUGHRecord()
+        record.append((self.names[0], args[0], '{:>5}'))
+        record.append((None, None, '{:>5}'))
+        if type(self).__name__ == 'FoftCollection':
+            record.append(('ifoft', kwargs['ifoft'], '{:>5}'))
+        self.append(record)
+
+        return None
+
+    @classmethod
+    def empty(cls):
+        return FoftCollection('NOELM')
+
+    @classmethod
+    def from_file(cls, data_record, extra_record=False):
+
+        block, _ = super().from_file(data_record[0])
+        return block, data_record[1:]
+
+
+class Roft(TOUGHBlock):
+
+    def __init__(self, rofts=None):
+        super().__init__(record_collections=rofts, end_with_blank_line=True)
+        self.keyword += ' '
+
+    @classmethod
+    def from_file(cls, fn, trc=None, end_with_blank_line=True, extra_record=False, return_line_indices=False):
+        if return_line_indices:
+            lines, footers, ind_lines = cls.find_lines(fn, end_with_blank_line=end_with_blank_line, return_indices=True)
+        else:
+            ind_lines = None
+            lines, footers = cls.find_lines(fn, end_with_blank_line=end_with_blank_line, return_indices=False)
+
+        block = cls.block_from_lines(lines, trc=RoftCollection)
+        if return_line_indices:
+            return block, ind_lines
+        else:
+            return block
+
+    @classmethod
+    def block_from_lines(cls, lines, trc=None, extra_record=False):
+
+        return super().block_from_lines(lines, trc=RoftCollection)
+
+
+class RoftCollection(TOUGHRecordCollection):
+
+    def __init__(self, eroft1, eroft2):
+        super().__init__()
+        self.names = ['eroft1', 'eroft2']
+        args = [eroft1, eroft2]
+        setattr(self, 'eroft1', eroft1)
+        setattr(self, 'eroft2', eroft2)
+        kwargs = {}
+
+        self.update_records(*args, **kwargs)
+
+    def update_records(self, *args, **kwargs):
+
+        if not args and not kwargs:
+            args = [getattr(self, self.names[0]), getattr(self, self.names[1])]
+            args = tuple(args)
+
+        self.records = []
+
+        record = TOUGHRecord()
+        record.append((self.names[0], args[0], '{:>5}'))
+        record.append((self.names[1], args[1], '{:>5}'))
+        self.append(record)
+
+        return None
+
+    @classmethod
+    def empty(cls):
+        return RoftCollection('NOEL1', 'NOEL2')
+
+    @classmethod
+    def from_file(cls, data_record, extra_record=False):
+
+        block, _ = super().from_file(data_record[0])
+        return block, data_record[1:]
+
+
 if __name__ == '__main__':
 
     from os.path import dirname as up
@@ -2062,6 +2198,7 @@ if __name__ == '__main__':
 
     # Pull in data from old input file (based on EOS3):
     tough_input = TOUGHInput.from_file(fname)
+    tough_input['MOMOP'].record_collections[0].mop2[9] = 1
     tough_input.to_file(fname_chk)
 
     # Update ROCKS block with transmissivities (alpha_d):
@@ -2071,8 +2208,9 @@ if __name__ == '__main__':
         tough_input['ROCKS'][i_rck].alpha_d = alpha_d
 
     # Update PARAM block with new TIMAX and DEP (including X2 for salt mass fraction):
-    tough_input['PARAM'].timax = 10.0*365.25*24.0*3600.0
-    tough_input['PARAM'].dep.insert(1, 0.0)
+    # tough_input['PARAM'].timax = 10.0*365.25*24.0*3600.0
+    tough_input['PARAM'].timax = 777600.0
+    tough_input['PARAM'].dep[1] = 10.5
 
     # Update MULTI block with new NK, NEQ, and NPH:
     tough_input.replace_block('MULTI', Multi(nk=3, neq=3, nph=3, nb=8))
@@ -2089,8 +2227,11 @@ if __name__ == '__main__':
     fe = [0.0, None]
     tough_input.replace_block('SELEC', Selec(ie=ie, fe=fe))
 
+    tough_input['ROFT '][0].eroft1 = 'TESTM'
+    tough_input['FOFT '][0].ifoft = -1
     # Add TIMES block (and place after PARAM):
-    tis = (365.25*24.0*3600.0*np.arange(1, 11)).tolist()
+    # tis = (365.25*24.0*3600.0*np.arange(1, 11)).tolist()
+    tis = [777600.0]
     tough_input.replace_block('TIMES', Times(tis=tis))
 
     # Write updated inputs to new file:
